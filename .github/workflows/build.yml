@@ -1,0 +1,47 @@
+name: Build DevClip (Windows)
+
+# Builds a real Windows installer (.msi + .exe) and uploads it as a downloadable
+# artifact. No code signing — Windows SmartScreen will warn on first run; that's
+# expected for an unsigned test build (see README / the run summary).
+
+on:
+  push:
+    branches: [claude/sweet-lovelace-t3l2t0]
+  workflow_dispatch: {}
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Run core tests
+        run: cargo test -p devclip-core
+
+      - name: Build DevClip (frontend + Tauri installer)
+        run: npm run tauri build
+
+      - name: Upload installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: devclip-windows-installers
+          path: |
+            src-tauri/target/release/bundle/msi/*.msi
+            src-tauri/target/release/bundle/nsis/*.exe
+          if-no-files-found: error
