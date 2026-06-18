@@ -12,8 +12,8 @@ pub mod model;
 pub mod search;
 pub mod store;
 
-pub use model::{ClipboardEntry, ScoredSnippet, Snippet};
-pub use search::search;
+pub use model::{ClipboardEntry, ResultKind, ScoredSnippet, Snippet, UnifiedResult};
+pub use search::{search, search_unified};
 pub use store::{Store, DEFAULT_CLIPBOARD_CAP};
 
 /// Current unix time in seconds. Convenience for callers; core functions take

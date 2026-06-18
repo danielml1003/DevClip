@@ -24,4 +24,26 @@ export interface ClipboardEntry {
   createdAt: number;
 }
 
-export type Mode = "snippets" | "clipboard";
+export type ItemKind = "snippet" | "clipboard";
+
+/** A row in the unified (default Clipboard view) search across both sources. */
+export interface UnifiedResult {
+  kind: ItemKind;
+  id: number;
+  title: string;
+  content: string;
+  score: number;
+  titleIndices: number[];
+  contentIndices: number[];
+  createdAt: number;
+  lastUsedAt: number | null;
+  useCount: number;
+}
+
+export interface AppSettings {
+  dbPath: string;
+  clipboardCap: number;
+  defaultDbPath: string;
+}
+
+export type Mode = "clipboard" | "snippets";

@@ -4,7 +4,7 @@
 //! versioned via `PRAGMA user_version` so future features (variables,
 //! expiration, sync metadata) can migrate cleanly.
 
-use crate::model::{ClipboardEntry, ScoredSnippet, Snippet};
+use crate::model::{ClipboardEntry, ScoredSnippet, Snippet, UnifiedResult};
 use crate::search;
 use rusqlite::{params, Connection, OptionalExtension};
 
@@ -156,6 +156,27 @@ impl Store {
     pub fn search(&self, query: &str, now: i64) -> Result<Vec<ScoredSnippet>> {
         let snippets = self.all_snippets()?;
         Ok(search::search(&snippets, query, now))
+    }
+
+    /// Unified search across snippets AND clipboard history (the default view).
+    /// `clip_limit` bounds how many recent clipboard entries are considered.
+    pub fn search_unified(
+        &self,
+        query: &str,
+        now: i64,
+        clip_limit: usize,
+    ) -> Result<Vec<UnifiedResult>> {
+        let snippets = self.all_snippets()?;
+        let clips = self.clipboard_history(clip_limit)?;
+        Ok(search::search_unified(&snippets, &clips, query, now))
+    }
+
+    /// Flush the write-ahead log into the main database file. Used before
+    /// copying the database to a new location (e.g. when the user changes the
+    /// storage path in settings).
+    pub fn checkpoint(&self) -> Result<()> {
+        self.conn
+            .execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")
     }
 
     pub fn count_snippets(&self) -> Result<i64> {

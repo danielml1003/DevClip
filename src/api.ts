@@ -2,10 +2,17 @@
 //
 // When running inside the Tauri webview we call real Rust commands. When the
 // page is opened in a plain browser (`npm run dev` without Tauri) we fall back
-// to an in-memory mock seeded with sample snippets, so the UI can be developed
-// and demoed standalone.
+// to an in-memory mock seeded with sample data, so the UI can be developed and
+// demoed standalone.
 
-import type { ClipboardEntry, Mode, SearchResult, Snippet } from "./types";
+import type {
+  AppSettings,
+  ClipboardEntry,
+  Mode,
+  SearchResult,
+  Snippet,
+  UnifiedResult,
+} from "./types";
 
 const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
@@ -34,8 +41,14 @@ if (isTauri) {
 // ----- Public API ------------------------------------------------------------
 
 export const api = {
+  /** Search snippets ONLY (the Snippets view). */
   search(query: string): Promise<SearchResult[]> {
     return isTauri ? invoke("search", { query }) : mock.search(query);
+  },
+
+  /** Unified search across snippets AND clipboard (the default view). */
+  searchAll(query: string): Promise<UnifiedResult[]> {
+    return isTauri ? invoke("search_all", { query }) : mock.searchAll(query);
   },
 
   saveSnippet(name: string, content: string): Promise<Snippet> {
@@ -65,6 +78,24 @@ export const api = {
     return isTauri
       ? invoke("paste", { content, snippetId: snippetId ?? null })
       : mock.paste(content, snippetId);
+  },
+
+  getSettings(): Promise<AppSettings> {
+    return isTauri ? invoke("get_settings") : mock.getSettings();
+  },
+
+  setSettings(dbPath: string, clipboardCap: number): Promise<AppSettings> {
+    return isTauri
+      ? invoke("set_settings", { dbPath, clipboardCap })
+      : mock.setSettings(dbPath, clipboardCap);
+  },
+
+  openSettings(): Promise<void> {
+    return isTauri ? invoke("open_settings") : mock.openSettings();
+  },
+
+  closeSettings(): Promise<void> {
+    return isTauri ? invoke("close_settings") : mock.closeSettings();
   },
 
   hide(): Promise<void> {
@@ -97,7 +128,13 @@ const mock = (() => {
     { id: 90, content: "git rebase -i HEAD~3", createdAt: now() - 30 },
     { id: 89, content: "SELECT * FROM users WHERE last_login > now() - interval '7 days';", createdAt: now() - 300 },
     { id: 88, content: "https://github.com/danielml1003/devclip", createdAt: now() - 900 },
+    { id: 87, content: "docker compose restart api", createdAt: now() - 1500 },
   ];
+  let settings: AppSettings = {
+    dbPath: "C:\\Users\\you\\AppData\\Roaming\\dev.devclip.app\\devclip.db",
+    clipboardCap: 100,
+    defaultDbPath: "C:\\Users\\you\\AppData\\Roaming\\dev.devclip.app\\devclip.db",
+  };
 
   function s(
     id: number,
@@ -176,42 +213,92 @@ const mock = (() => {
     return freq + recency;
   }
 
+  function scoreSnippet(query: string, snip: Snippet): SearchResult | null {
+    const terms = query.split(/\s+/).filter(Boolean);
+    if (terms.length === 0) {
+      return { snippet: snip, score: Math.round(usageBoost(snip)), nameIndices: [], contentIndices: [] };
+    }
+    let total = 0;
+    let nameIdx: number[] = [];
+    let contentIdx: number[] = [];
+    for (const term of terms) {
+      const nm = fuzzy(term, snip.name);
+      const cm = fuzzy(term, snip.content);
+      if (!nm && !cm) return null;
+      total += Math.max(nm ? nm.score * 1.6 : -Infinity, cm ? cm.score * 1.0 : -Infinity);
+      if (nm) nameIdx = nameIdx.concat(nm.indices);
+      if (cm) contentIdx = contentIdx.concat(cm.indices);
+    }
+    total += usageBoost(snip);
+    return {
+      snippet: snip,
+      score: Math.round(total),
+      nameIndices: dedupeSorted(nameIdx),
+      contentIndices: dedupeSorted(contentIdx),
+    };
+  }
+
   return {
     async search(query: string): Promise<SearchResult[]> {
-      const terms = query.split(/\s+/).filter(Boolean);
-      const out: SearchResult[] = [];
+      const out = snippets
+        .map((snip) => scoreSnippet(query, snip))
+        .filter((r): r is SearchResult => r !== null);
+      out.sort((a, b) => b.score - a.score || (b.snippet.lastUsedAt ?? 0) - (a.snippet.lastUsedAt ?? 0));
+      return out;
+    },
+    async searchAll(query: string): Promise<UnifiedResult[]> {
+      if (!query.trim()) return [];
+      const out: UnifiedResult[] = [];
+      const snippetContents = new Set<string>();
       for (const snip of snippets) {
-        if (terms.length === 0) {
-          out.push({ snippet: snip, score: Math.round(usageBoost(snip)), nameIndices: [], contentIndices: [] });
-          continue;
-        }
+        const r = scoreSnippet(query, snip);
+        if (!r) continue;
+        snippetContents.add(snip.content);
+        out.push({
+          kind: "snippet",
+          id: snip.id,
+          title: snip.name,
+          content: snip.content,
+          score: r.score,
+          titleIndices: r.nameIndices,
+          contentIndices: r.contentIndices,
+          createdAt: snip.createdAt,
+          lastUsedAt: snip.lastUsedAt,
+          useCount: snip.useCount,
+        });
+      }
+      const terms = query.split(/\s+/).filter(Boolean);
+      for (const e of clipboard) {
+        if (snippetContents.has(e.content)) continue;
         let total = 0;
-        let nameIdx: number[] = [];
-        let contentIdx: number[] = [];
+        let idx: number[] = [];
         let ok = true;
         for (const term of terms) {
-          const nm = fuzzy(term, snip.name);
-          const cm = fuzzy(term, snip.content);
-          const ns = nm ? nm.score * 1.6 : -Infinity;
-          const cs = cm ? cm.score * 1.0 : -Infinity;
-          if (!nm && !cm) {
+          const m = fuzzy(term, e.content);
+          if (!m) {
             ok = false;
             break;
           }
-          total += Math.max(ns, cs);
-          if (nm) nameIdx = nameIdx.concat(nm.indices);
-          if (cm) contentIdx = contentIdx.concat(cm.indices);
+          total += m.score;
+          idx = idx.concat(m.indices);
         }
         if (!ok) continue;
-        total += usageBoost(snip);
+        total += 30 * Math.pow(0.5, Math.max(0, now() - e.createdAt) / 86400);
+        const indices = dedupeSorted(idx);
         out.push({
-          snippet: snip,
+          kind: "clipboard",
+          id: e.id,
+          title: e.content,
+          content: e.content,
           score: Math.round(total),
-          nameIndices: dedupeSorted(nameIdx),
-          contentIndices: dedupeSorted(contentIdx),
+          titleIndices: indices,
+          contentIndices: indices,
+          createdAt: e.createdAt,
+          lastUsedAt: null,
+          useCount: 0,
         });
       }
-      out.sort((a, b) => b.score - a.score || (b.snippet.lastUsedAt ?? 0) - (a.snippet.lastUsedAt ?? 0));
+      out.sort((a, b) => b.score - a.score || b.createdAt - a.createdAt);
       return out;
     },
     async saveSnippet(name: string, content: string): Promise<Snippet> {
@@ -231,6 +318,21 @@ const mock = (() => {
     async paste(content: string, snippetId?: number): Promise<void> {
       // eslint-disable-next-line no-console
       console.info("[mock] paste", { snippetId, content });
+    },
+    async getSettings(): Promise<AppSettings> {
+      return { ...settings };
+    },
+    async setSettings(dbPath: string, clipboardCap: number): Promise<AppSettings> {
+      settings = { ...settings, dbPath, clipboardCap: Math.max(1, Math.min(100000, clipboardCap)) };
+      return { ...settings };
+    },
+    async openSettings(): Promise<void> {
+      location.hash = "settings";
+      location.reload();
+    },
+    async closeSettings(): Promise<void> {
+      location.hash = "";
+      location.reload();
     },
     async hide(): Promise<void> {
       // eslint-disable-next-line no-console

@@ -44,27 +44,38 @@ commands.
 
 ## How it works
 
+DevClip opens at your mouse cursor (clipped to the active screen) and defaults
+to the **Clipboard** view.
+
 ### Save
 1. Copy text normally (`Ctrl+C`).
-2. Open DevClip (`Alt+Space`), press `Tab` to view **Clipboard** history.
+2. Open DevClip (`Alt+Space`) — you're on the **Clipboard** view.
 3. Select the entry, press `Ctrl+S`. The name is pre-filled from the content.
 4. `Enter` — it's now permanently searchable.
 
 ### Retrieve
 1. `Alt+Space` — search is already focused.
-2. Type any fragment of the name or content.
+2. Type any fragment. From the default view this searches **both** your
+   clipboard history and your saved snippets. Switch to the **Snippets** tab
+   (`Tab`) to search snippets only.
 3. `↑/↓` to pick, `Enter` to **paste it into the app you were just in**.
 
 | Key | Action |
 |-----|--------|
-| `Alt+Space` | Show / hide DevClip (global) |
-| type | Fuzzy search |
+| `Alt+Space` | Show / hide DevClip (global), at the cursor |
+| type | Fuzzy search (clipboard + snippets on the default view) |
 | `↑` / `↓` | Move selection |
 | `Enter` | Paste selected into the previously focused app |
-| `Tab` | Toggle **Snippets** ↔ **Clipboard history** |
+| `Tab` | Toggle **Clipboard** ↔ **Snippets** |
 | `Ctrl+S` | Save selected clipboard entry (or the live clipboard) as a snippet |
 | `Ctrl+Delete` | Delete the selected snippet |
+| `Ctrl+,` | Open Settings (storage path, clipboard history limit) |
 | `Esc` | Clear the query, then hide |
+
+### Settings (`Ctrl+,`)
+A separate window to view/change the **data storage file path** and the
+**clipboard history limit**. Changing the path switches to the database at the
+new location (existing data is copied over if nothing is there yet).
 
 ## Architecture
 
@@ -134,11 +145,13 @@ npm run tauri icon path/to/icon.png
 
 ## Status & roadmap
 
-V1 is complete and verified (core tested, frontend + desktop binary build).
-Planned next, intentionally **not** in V1: snippet variables, expiration dates,
-cross-machine sync, AI naming/search, team sharing, and a settings UI for
-rebinding the hotkey. The core/shell split and versioned schema leave room for
-these without a rewrite.
+V1 is complete and verified (core tested, frontend + desktop binary build), with
+a Settings window (storage path + clipboard limit), a Clipboard-first unified
+search, cursor-anchored positioning, and reliable Windows paste (focus-restore +
+`SendInput`). Planned next, intentionally **not** here: a configurable hotkey,
+snippet variables, expiration dates, cross-machine sync, AI naming/search, and
+team sharing. The core/shell split and versioned schema leave room for these
+without a rewrite.
 
 ## License
 
