@@ -1,0 +1,21 @@
+[package]
+name = "devclip-tauri"
+version = { workspace = true }
+edition = { workspace = true }
+license = { workspace = true }
+authors = { workspace = true }
+description = "DevClip desktop shell (Tauri v2)."
+default-run = "devclip-tauri"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+devclip-core = { path = "../crates/devclip-core" }
+tauri = { version = "2", features = ["macos-private-api"] }
+tauri-plugin-global-shortcut = "2"
+tauri-plugin-clipboard-manager = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# Synthetic keystrokes for "paste into the focused app".
+enigo = "0.2"

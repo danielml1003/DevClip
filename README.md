@@ -1,0 +1,145 @@
+<div align="center">
+
+# DevClip
+
+**A searchable memory for developer snippets — not a clipboard manager.**
+
+Fast, keyboard-first, local-first. The clipboard is just how data gets in.
+
+</div>
+
+---
+
+Developers constantly have tiny, valuable, throwaway bits of text — SSH/docker/
+kubectl commands, SQL queries, API requests, URLs, JWTs, regexes, build
+commands, one-off migrations, AI prompts. They're too valuable to lose, too
+temporary to document, too small for a file. They scatter across Slack,
+bookmarks, random `.txt` files and shell history, and finding them later is
+miserable.
+
+DevClip gives them one home and makes them **instantly findable**:
+
+```
+Alt+Space  →  type "mig"  →  ↵  →  pasted into whatever you were doing
+```
+
+It feels like the VS Code command palette / Raycast / Alfred, but for *your*
+commands.
+
+## Features
+
+- ⌨️ **Keyboard-first command palette** — global hotkey, autofocused search,
+  arrow keys, Enter to paste. The mouse is optional.
+- 🔎 **High-quality fuzzy search** over both **name and content**, with
+  word-boundary / camelCase awareness and live highlighting.
+  - `mig` → **Pro**duction **mig**ration command
+  - `docker compose` → every compose command
+  - `prod` → items whose **title** contains "prod" (titles rank higher)
+- ⚡ **Smart ranking** — relevance blended with how recently and how often you
+  use each snippet, so your muscle-memory commands float to the top.
+- 📋 **Clipboard history** as the on-ramp — copy normally, then **explicitly**
+  promote the good stuff to a permanent, named snippet (`Ctrl+S`).
+- 💾 **Local-first** — a single SQLite file. No cloud, no account, no sync.
+- 🪶 **Fast & tiny** — native OS webview (Tauri), ~4.5 KB gzipped UI.
+
+## How it works
+
+### Save
+1. Copy text normally (`Ctrl+C`).
+2. Open DevClip (`Alt+Space`), press `Tab` to view **Clipboard** history.
+3. Select the entry, press `Ctrl+S`. The name is pre-filled from the content.
+4. `Enter` — it's now permanently searchable.
+
+### Retrieve
+1. `Alt+Space` — search is already focused.
+2. Type any fragment of the name or content.
+3. `↑/↓` to pick, `Enter` to **paste it into the app you were just in**.
+
+| Key | Action |
+|-----|--------|
+| `Alt+Space` | Show / hide DevClip (global) |
+| type | Fuzzy search |
+| `↑` / `↓` | Move selection |
+| `Enter` | Paste selected into the previously focused app |
+| `Tab` | Toggle **Snippets** ↔ **Clipboard history** |
+| `Ctrl+S` | Save selected clipboard entry (or the live clipboard) as a snippet |
+| `Ctrl+Delete` | Delete the selected snippet |
+| `Esc` | Clear the query, then hide |
+
+## Architecture
+
+A pure-Rust, fully-tested core; a thin Tauri shell; a vanilla-TS UI.
+
+```
+frontend (TS/Vite)  ──IPC──▶  src-tauri (shell)  ──▶  devclip-core (logic + SQLite)
+```
+
+- **`crates/devclip-core`** — model, fuzzy matcher, ranking, SQLite store. No
+  GUI deps; **23 unit tests**. This is where search quality lives.
+- **`src-tauri`** — global hotkey, clipboard polling, paste injection, IPC.
+- **`src/`** — the command-palette UI (also runs in a plain browser against an
+  in-memory mock for fast iteration).
+
+See [`docs/DESIGN.md`](docs/DESIGN.md) for the full design: architecture, UI
+flow, UX trade-offs, stack rationale, and the phased plan.
+
+## Tech stack
+
+Tauri v2 · Rust · `rusqlite` (bundled SQLite) · TypeScript + Vite (no UI
+framework) · `enigo` (synthetic paste). Chosen for **fast startup** and a tiny
+footprint — see DESIGN §4.
+
+## Development
+
+Prerequisites: **Node 18+** and the **Rust** toolchain.
+
+```bash
+# 1. Frontend deps
+npm install
+
+# 2. Run the fully-tested core logic (no GUI needed)
+cargo test --workspace
+
+# 3. Develop the UI in a browser (mock backend, sample data)
+npm run dev            # http://localhost:1420
+
+# 4. Run the real desktop app
+npm run tauri dev
+```
+
+### Linux build dependencies
+
+The Tauri shell needs the system webview + GTK libs:
+
+```bash
+sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev \
+  libayatana-appindicator3-dev librsvg2-dev libxdo-dev
+```
+
+(macOS and Windows need only their standard toolchains.)
+
+### Build a release binary
+
+```bash
+npm run tauri build
+```
+
+### Regenerate icons
+
+The icon set is checked in. To regenerate from a source image:
+
+```bash
+npm run tauri icon path/to/icon.png
+```
+
+## Status & roadmap
+
+V1 is complete and verified (core tested, frontend + desktop binary build).
+Planned next, intentionally **not** in V1: snippet variables, expiration dates,
+cross-machine sync, AI naming/search, team sharing, and a settings UI for
+rebinding the hotkey. The core/shell split and versioned schema leave room for
+these without a rewrite.
+
+## License
+
+MIT

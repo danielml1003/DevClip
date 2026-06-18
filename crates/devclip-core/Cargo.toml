@@ -1,0 +1,17 @@
+[package]
+name = "devclip-core"
+version = { workspace = true }
+edition = { workspace = true }
+license = { workspace = true }
+authors = { workspace = true }
+description = "Pure-Rust core for DevClip: data model, SQLite storage and fuzzy search."
+
+# This crate intentionally has NO GUI / Tauri / webkit dependencies so that the
+# search and storage logic — the heart of the product — can be unit-tested
+# anywhere, including headless CI.
+
+[dependencies]
+rusqlite = { version = "0.31", features = ["bundled"] }
+
+[dev-dependencies]
+tempfile = "3"

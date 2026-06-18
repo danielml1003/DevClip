@@ -1,0 +1,25 @@
+# Rust
+/target
+**/*.rs.bk
+
+# Node / frontend
+node_modules
+dist
+dist-ssr
+*.local
+
+# Tauri generated
+src-tauri/target
+src-tauri/gen/schemas
+
+# Editor / OS
+.DS_Store
+.idea
+.vscode/*
+!.vscode/extensions.json
+*.log
+
+# Local DevClip database (if ever created in-tree during dev)
+*.db
+*.db-wal
+*.db-shm

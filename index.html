@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>DevClip</title>
+  </head>
+  <body>
+    <div id="app" class="palette">
+      <header class="search-bar">
+        <span class="search-icon" aria-hidden="true">⌘</span>
+        <input
+          id="search"
+          type="text"
+          autocomplete="off"
+          autocorrect="off"
+          autocapitalize="off"
+          spellcheck="false"
+          placeholder="Search your snippets…"
+          aria-label="Search snippets"
+        />
+        <div class="mode-tabs" id="mode-tabs">
+          <button class="tab active" data-mode="snippets">Snippets</button>
+          <button class="tab" data-mode="clipboard">Clipboard</button>
+        </div>
+      </header>
+
+      <ul id="results" class="results" role="listbox" aria-label="Results"></ul>
+
+      <div id="empty" class="empty hidden"></div>
+
+      <footer class="footer" id="footer"></footer>
+    </div>
+
+    <!-- Save dialog (promote a clipboard entry / current clipboard to a snippet) -->
+    <div id="save-overlay" class="overlay hidden">
+      <div class="save-card">
+        <h2>Save snippet</h2>
+        <label for="save-name">Name</label>
+        <input id="save-name" type="text" placeholder="e.g. Production migration command" />
+        <label for="save-content">Content</label>
+        <textarea id="save-content" rows="6" spellcheck="false"></textarea>
+        <div class="save-actions">
+          <span class="hint"><kbd>Enter</kbd> save · <kbd>Esc</kbd> cancel</span>
+          <button id="save-confirm" class="primary">Save</button>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
