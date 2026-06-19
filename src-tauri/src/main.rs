@@ -3,6 +3,8 @@
 
 mod commands;
 mod settings;
+#[cfg(windows)]
+mod winpos;
 
 use std::sync::Mutex;
 use std::time::Duration;
@@ -10,13 +12,19 @@ use std::time::Duration;
 use commands::AppState;
 use devclip_core::{now_unix, Store, DEFAULT_CLIPBOARD_CAP};
 use settings::Settings;
-use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewWindow};
+use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, WebviewWindow};
+#[cfg(not(windows))]
+use tauri::PhysicalSize;
 use tauri_plugin_global_shortcut::{
     Builder as ShortcutBuilder, Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState,
 };
 
 /// How often the background thread samples the OS clipboard.
 const CLIPBOARD_POLL: Duration = Duration::from_millis(700);
+/// How long a tool-written clipboard value is treated as "our own output" and
+/// suppressed from history. Generous enough to survive the async OS clipboard
+/// event, short enough not to swallow a genuine later re-copy of the same text.
+const SELF_WRITE_TTL: Duration = Duration::from_secs(5);
 
 fn main() {
     tauri::Builder::default()
@@ -51,6 +59,7 @@ fn main() {
                 settings: Mutex::new(settings),
                 config_path,
                 default_db_path,
+                last_self_write: Mutex::new(None),
                 #[cfg(windows)]
                 prev_hwnd: std::sync::atomic::AtomicIsize::new(0),
             });
@@ -97,13 +106,9 @@ fn toggle_window(app: &AppHandle) {
     if win.is_visible().unwrap_or(false) {
         let _ = win.hide();
     } else {
-        // Remember the app that's focused right now so we can paste back into
-        // it (Windows), then position the palette at the cursor.
-        #[cfg(windows)]
-        if let Some(state) = app.try_state::<AppState>() {
-            commands::winpaste::capture_foreground(state.inner());
-        }
-        position_at_cursor(&win);
+        // Everything that inspects the *currently* focused app must happen
+        // before we show/focus our own window.
+        position_window(app, &win);
         let _ = win.show();
         let _ = win.set_focus();
         // Tell the frontend to reset to a clean, focused search state.
@@ -111,8 +116,42 @@ fn toggle_window(app: &AppHandle) {
     }
 }
 
+/// Place the palette before showing it.
+///
+/// On Windows: remember the focused app (for paste-back) and open at the text
+/// caret, walking a fallback ladder (caret → input box → app center → display
+/// center → screen center). On other platforms: open at the mouse cursor.
+fn position_window(app: &AppHandle, win: &WebviewWindow) {
+    #[cfg(windows)]
+    {
+        if let Some(state) = app.try_state::<AppState>() {
+            commands::winpaste::capture_foreground(state.inner());
+        }
+        let wsize = win
+            .outer_size()
+            .map(|s| (s.width as i32, s.height as i32))
+            .unwrap_or((720, 480));
+        match winpos::caret_origin(wsize) {
+            Some((x, y)) => {
+                let _ = win.set_position(PhysicalPosition::new(x, y));
+            }
+            None => {
+                let _ = win.center();
+            }
+        }
+    }
+
+    #[cfg(not(windows))]
+    {
+        let _ = app; // unused off Windows
+        position_at_cursor(win);
+    }
+}
+
 /// Position the palette near the mouse cursor, clipped to the bounds of the
 /// monitor the cursor is on (so it always appears on the active screen).
+/// Used on macOS/Linux; Windows anchors to the text caret instead.
+#[cfg(not(windows))]
 fn position_at_cursor(win: &WebviewWindow) {
     let Ok(cursor) = win.cursor_position() else {
         let _ = win.center();
@@ -175,16 +214,43 @@ fn start_clipboard_monitor(app: AppHandle) {
             if text == last || text.trim().is_empty() {
                 continue;
             }
-            last = text.clone();
-            if let Some(state) = app.try_state::<AppState>() {
-                let cap = state
-                    .settings
-                    .lock()
-                    .map(|s| s.clipboard_cap)
-                    .unwrap_or(DEFAULT_CLIPBOARD_CAP);
-                if let Ok(store) = state.store.lock() {
-                    let _ = store.add_clipboard(&text, now_unix(), cap);
+            let Some(state) = app.try_state::<AppState>() else {
+                continue;
+            };
+
+            // Echo suppression: if this value is one the tool just wrote (for a
+            // paste), it's our own output, not a user copy — adopt it as the
+            // baseline but don't record it (prevents the paste-to-top loop).
+            let is_echo = if let Ok(mut sw) = state.last_self_write.lock() {
+                match sw.as_ref() {
+                    Some((val, t)) if *val == text && t.elapsed() < SELF_WRITE_TTL => {
+                        *sw = None;
+                        true
+                    }
+                    Some((_, t)) if t.elapsed() >= SELF_WRITE_TTL => {
+                        *sw = None;
+                        false
+                    }
+                    _ => false,
                 }
+            } else {
+                false
+            };
+
+            last = text.clone();
+            if is_echo {
+                continue;
+            }
+
+            let cap = state
+                .settings
+                .lock()
+                .map(|s| s.clipboard_cap)
+                .unwrap_or(DEFAULT_CLIPBOARD_CAP);
+            // Named binding (declared after `state`) so the guard drops first.
+            let store = state.store.lock();
+            if let Ok(store) = store {
+                let _ = store.add_clipboard(&text, now_unix(), cap);
             }
         }
     });

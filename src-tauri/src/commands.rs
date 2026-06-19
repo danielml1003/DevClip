@@ -5,6 +5,7 @@
 
 use std::path::PathBuf;
 use std::sync::Mutex;
+use std::time::Instant;
 
 use devclip_core::{now_unix, ResultKind, ScoredSnippet, Snippet, Store, UnifiedResult};
 use serde::Serialize;
@@ -20,6 +21,10 @@ pub struct AppState {
     pub config_path: PathBuf,
     /// The default database path (used by the settings "reset" affordance).
     pub default_db_path: PathBuf,
+    /// The last value the tool itself wrote to the clipboard (for a paste),
+    /// with a timestamp. The clipboard monitor uses this to recognise its own
+    /// output and avoid re-recording it as a new "copy" (the paste loop).
+    pub last_self_write: Mutex<Option<(String, Instant)>>,
     /// Handle of the window that was focused before the palette appeared, so we
     /// can restore focus to it and paste reliably. Windows only.
     #[cfg(windows)]
@@ -290,6 +295,11 @@ pub fn paste(
 ) -> Result<(), String> {
     use tauri_plugin_clipboard_manager::ClipboardExt;
 
+    // Record what we're about to put on the clipboard so the monitor can
+    // recognise its own output and not re-add it to history (the paste loop).
+    if let Ok(mut sw) = state.last_self_write.lock() {
+        *sw = Some((content.clone(), Instant::now()));
+    }
     app.clipboard().write_text(content).map_err(err)?;
 
     if let Some(id) = snippet_id {
