@@ -359,12 +359,15 @@ pub(crate) mod winpaste {
     use std::thread::sleep;
     use std::time::Duration;
 
-    use windows::Win32::Foundation::HWND;
+    use windows::Win32::Foundation::{BOOL, HWND};
+    use windows::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
     use windows::Win32::UI::Input::KeyboardAndMouse::{
         SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYBD_EVENT_FLAGS, KEYEVENTF_KEYUP,
         VIRTUAL_KEY, VK_CONTROL,
     };
-    use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, SetForegroundWindow};
+    use windows::Win32::UI::WindowsAndMessaging::{
+        BringWindowToTop, GetForegroundWindow, GetWindowThreadProcessId, SetForegroundWindow,
+    };
 
     use super::AppState;
 
@@ -383,18 +386,54 @@ pub(crate) mod winpaste {
         unsafe {
             if prev_hwnd != 0 {
                 let hwnd = HWND(prev_hwnd as *mut core::ffi::c_void);
-                let _ = SetForegroundWindow(hwnd);
+                force_foreground(hwnd);
                 // Spin briefly until focus actually lands (fast, but reliable).
-                for _ in 0..40 {
+                for _ in 0..50 {
                     if GetForegroundWindow() == hwnd {
                         break;
                     }
-                    sleep(Duration::from_millis(3));
+                    sleep(Duration::from_millis(4));
                 }
             } else {
                 sleep(Duration::from_millis(30));
             }
             send_ctrl_v();
+        }
+    }
+
+    /// Reliably bring `hwnd` to the foreground, working around the Win32
+    /// foreground lock by briefly attaching our input queue to the current
+    /// foreground and target threads. Without this, the *first* paste after the
+    /// palette appears is frequently refused by Windows and only the *second*
+    /// one succeeds.
+    unsafe fn force_foreground(hwnd: HWND) {
+        let cur = GetCurrentThreadId();
+        let fg = GetForegroundWindow();
+        let fg_thread = if fg.0.is_null() {
+            0
+        } else {
+            GetWindowThreadProcessId(fg, None)
+        };
+        let target_thread = GetWindowThreadProcessId(hwnd, None);
+
+        let attach_fg = fg_thread != 0 && fg_thread != cur;
+        let attach_tgt = target_thread != 0 && target_thread != cur && target_thread != fg_thread;
+
+        if attach_fg {
+            let _ = AttachThreadInput(cur, fg_thread, BOOL(1));
+        }
+        if attach_tgt {
+            let _ = AttachThreadInput(cur, target_thread, BOOL(1));
+        }
+
+        let _ = BringWindowToTop(hwnd);
+        let _ = SetForegroundWindow(hwnd);
+
+        if attach_tgt {
+            let _ = AttachThreadInput(cur, target_thread, BOOL(0));
+        }
+        if attach_fg {
+            let _ = AttachThreadInput(cur, fg_thread, BOOL(0));
         }
     }
 
