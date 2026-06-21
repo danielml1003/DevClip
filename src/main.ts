@@ -1,4 +1,4 @@
-import { api } from "./api";
+import { api, isTauri, windowLabel } from "./api";
 import type { ClipboardEntry, ItemKind, Mode, SearchResult, UnifiedResult } from "./types";
 import "./styles.css";
 
@@ -468,8 +468,13 @@ async function initSettings(): Promise<void> {
 
 // ----- Entry point -----------------------------------------------------------
 
-const route = location.hash.replace(/^#\/?/, "");
-if (route === "settings") {
+// In the real app, the settings window is identified by its window LABEL. In a
+// plain browser (mock dev), fall back to the URL hash.
+const isSettingsWindow = isTauri
+  ? windowLabel() === "settings"
+  : location.hash.replace(/^#\/?/, "") === "settings";
+
+if (isSettingsWindow) {
   void initSettings();
 } else {
   initPalette();

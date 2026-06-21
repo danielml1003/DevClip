@@ -127,15 +127,15 @@ fn position_window(app: &AppHandle, win: &WebviewWindow) {
         if let Some(state) = app.try_state::<AppState>() {
             commands::winpaste::capture_foreground(state.inner());
         }
-        let wsize = win
-            .outer_size()
-            .map(|s| (s.width as i32, s.height as i32))
-            .unwrap_or((720, 480));
-        match winpos::caret_origin(wsize) {
-            Some((x, y)) => {
+        // Logical window size from tauri.conf.json; winpos scales it to the
+        // foreground monitor's DPI internally.
+        match winpos::caret_origin((720, 480)) {
+            // Safety net: only trust the point if it lands on a real monitor in
+            // Tauri's own coordinate space (the space set_position uses).
+            Some((x, y)) if point_on_a_monitor(win, x, y) => {
                 let _ = win.set_position(PhysicalPosition::new(x, y));
             }
-            None => {
+            _ => {
                 let _ = win.center();
             }
         }
@@ -146,6 +146,21 @@ fn position_window(app: &AppHandle, win: &WebviewWindow) {
         let _ = app; // unused off Windows
         position_at_cursor(win);
     }
+}
+
+/// True if `(x, y)` (physical px) falls within any connected monitor, per
+/// Tauri's monitor list — the authoritative coordinate space for `set_position`.
+#[cfg(windows)]
+fn point_on_a_monitor(win: &WebviewWindow, x: i32, y: i32) -> bool {
+    win.available_monitors()
+        .map(|mons| {
+            mons.iter().any(|m| {
+                let p = m.position();
+                let s = m.size();
+                x >= p.x && x < p.x + s.width as i32 && y >= p.y && y < p.y + s.height as i32
+            })
+        })
+        .unwrap_or(false)
 }
 
 /// Position the palette near the mouse cursor, clipped to the bounds of the

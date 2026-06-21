@@ -258,7 +258,10 @@ pub fn open_settings(app: AppHandle) -> Result<(), String> {
         let _ = win.set_focus();
         return Ok(());
     }
-    WebviewWindowBuilder::new(&app, "settings", WebviewUrl::App("index.html#settings".into()))
+    // Load plain index.html and detect the settings view via the window LABEL
+    // in the frontend. (A URL fragment like "index.html#settings" is treated as
+    // part of the asset path by the bundler and fails to resolve → blank window.)
+    WebviewWindowBuilder::new(&app, "settings", WebviewUrl::App("index.html".into()))
         .title("DevClip — Settings")
         .inner_size(580.0, 460.0)
         .min_inner_size(460.0, 360.0)

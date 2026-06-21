@@ -24,6 +24,7 @@ let invoke: InvokeFn = async () => {
 };
 let listenImpl: ListenFn = async () => async () => {};
 let hideWindow: () => Promise<void> = async () => {};
+let currentLabel = "main";
 
 if (isTauri) {
   // Dynamic imports so the mock build doesn't require the packages at runtime.
@@ -33,9 +34,16 @@ if (isTauri) {
   invoke = core.invoke as InvokeFn;
   listenImpl = ((name, handler) =>
     event.listen(name, () => handler())) as ListenFn;
+  const current = win.getCurrentWindow();
+  currentLabel = current.label;
   hideWindow = async () => {
-    await win.getCurrentWindow().hide();
+    await current.hide();
   };
+}
+
+/** Which window this script is running in ("main" or "settings"). */
+export function windowLabel(): string {
+  return currentLabel;
 }
 
 // ----- Public API ------------------------------------------------------------
