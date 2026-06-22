@@ -9,7 +9,7 @@ use std::time::Instant;
 
 use devclip_core::{now_unix, ResultKind, ScoredSnippet, Snippet, Store, UnifiedResult};
 use serde::Serialize;
-use tauri::{AppHandle, Manager, State, WebviewUrl, WebviewWindowBuilder};
+use tauri::{AppHandle, Manager, State};
 
 use crate::settings::Settings;
 
@@ -250,35 +250,10 @@ pub fn set_settings(
     Ok(settings_dto(&state, &settings))
 }
 
-/// Open (or focus) the settings window.
-#[tauri::command]
-pub fn open_settings(app: AppHandle) -> Result<(), String> {
-    if let Some(win) = app.get_webview_window("settings") {
-        let _ = win.show();
-        let _ = win.set_focus();
-        return Ok(());
-    }
-    // Load plain index.html and detect the settings view via the window LABEL
-    // in the frontend. (A URL fragment like "index.html#settings" is treated as
-    // part of the asset path by the bundler and fails to resolve → blank window.)
-    WebviewWindowBuilder::new(&app, "settings", WebviewUrl::App("index.html".into()))
-        .title("DevClip — Settings")
-        .inner_size(580.0, 460.0)
-        .min_inner_size(460.0, 360.0)
-        .resizable(true)
-        .center()
-        .build()
-        .map_err(err)?;
-    Ok(())
-}
-
-#[tauri::command]
-pub fn close_settings(app: AppHandle) -> Result<(), String> {
-    if let Some(win) = app.get_webview_window("settings") {
-        let _ = win.close();
-    }
-    Ok(())
-}
+// Settings is rendered as an in-app panel in the main window (not a separate
+// OS window): a second WebviewWindow that loads the SPA index.html renders
+// blank in production builds — a known Tauri v2 limitation
+// (tauri-apps/tauri#14177).
 
 // ----- Paste ------------------------------------------------------------------
 

@@ -32,33 +32,38 @@
       <footer class="footer" id="footer"></footer>
     </div>
 
-    <!-- Settings window (loaded at index.html#settings in a separate window) -->
-    <div id="settings-page" class="settings-page hidden">
-      <h1>DevClip Settings</h1>
+    <!-- Settings (in-app panel within the main window) -->
+    <div id="settings-overlay" class="overlay hidden">
+      <div class="settings-card">
+        <h2>DevClip Settings</h2>
 
-      <section class="set-group">
-        <label for="set-path">Data storage file</label>
-        <p class="set-help">
-          Where DevClip keeps its SQLite database. Changing this switches to the
-          database at the new location (existing data is copied over if the file
-          doesn't exist yet).
-        </p>
-        <input id="set-path" type="text" spellcheck="false" />
-        <p class="set-help dim">Default: <span id="set-default-path" class="mono"></span></p>
-        <button id="set-reset" class="ghost">Reset to default</button>
-      </section>
+        <section class="set-group">
+          <label for="set-path">Data storage file</label>
+          <p class="set-help">
+            Where DevClip keeps its SQLite database. Changing this switches to
+            the database at the new location (existing data is copied over if
+            the file doesn't exist yet).
+          </p>
+          <input id="set-path" type="text" spellcheck="false" />
+          <p class="set-help dim">Default: <span id="set-default-path" class="mono"></span></p>
+          <button id="set-reset" class="ghost">Reset to default</button>
+        </section>
 
-      <section class="set-group">
-        <label for="set-cap">Clipboard history limit</label>
-        <p class="set-help">Maximum number of clipboard entries to keep. Older entries are dropped.</p>
-        <input id="set-cap" type="number" min="1" max="100000" step="1" />
-      </section>
+        <section class="set-group">
+          <label for="set-cap">Clipboard history limit</label>
+          <p class="set-help">Maximum number of clipboard entries to keep. Older entries are dropped.</p>
+          <input id="set-cap" type="number" min="1" max="100000" step="1" />
+        </section>
 
-      <div id="set-status" class="set-status"></div>
+        <div id="set-status" class="set-status"></div>
 
-      <div class="set-actions">
-        <button id="set-cancel" class="ghost">Close</button>
-        <button id="set-save" class="primary">Save</button>
+        <div class="set-actions">
+          <span class="hint"><kbd>Enter</kbd> save · <kbd>Esc</kbd> close</span>
+          <button id="set-cancel" class="ghost">Close</button>
+          <button id="set-save" class="primary">Save</button>
+        </div>
+
+        <div class="set-build">build <span id="set-build"></span></div>
       </div>
     </div>
 

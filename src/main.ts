@@ -1,6 +1,9 @@
-import { api, isTauri, windowLabel } from "./api";
+import { api } from "./api";
 import type { ClipboardEntry, ItemKind, Mode, SearchResult, UnifiedResult } from "./types";
 import "./styles.css";
+
+/** Build identifier injected at build time (see vite.config.ts). */
+declare const __DEVCLIP_BUILD__: string;
 
 // ----- Element handles -------------------------------------------------------
 
@@ -85,6 +88,16 @@ function initPalette(): void {
   const saveContent = $<HTMLTextAreaElement>("#save-content");
   const saveConfirm = $<HTMLButtonElement>("#save-confirm");
 
+  const settingsOverlay = $<HTMLDivElement>("#settings-overlay");
+  const setPath = $<HTMLInputElement>("#set-path");
+  const setCap = $<HTMLInputElement>("#set-cap");
+  const setStatus = $<HTMLDivElement>("#set-status");
+  const setDefaultPath = $<HTMLElement>("#set-default-path");
+  const setSaveBtn = $<HTMLButtonElement>("#set-save");
+  const setResetBtn = $<HTMLButtonElement>("#set-reset");
+  const setCancelBtn = $<HTMLButtonElement>("#set-cancel");
+  const setBuild = $<HTMLElement>("#set-build");
+
   interface State {
     mode: Mode;
     selected: number;
@@ -92,6 +105,7 @@ function initPalette(): void {
     /** Whether the current list mixes snippets and clipboard (show badges). */
     unified: boolean;
     saving: boolean;
+    settingsOpen: boolean;
   }
 
   const state: State = {
@@ -100,7 +114,10 @@ function initPalette(): void {
     rows: [],
     unified: false,
     saving: false,
+    settingsOpen: false,
   };
+
+  let defaultDbPath = "";
 
   // ----- Row builders --------------------------------------------------------
 
@@ -253,10 +270,11 @@ function initPalette(): void {
   }
 
   function renderFooter(): void {
-    footerEl.innerHTML =
+    const hints =
       state.mode === "clipboard"
         ? `<span><kbd>↵</kbd> paste</span><span><kbd>Tab</kbd> snippets</span><span><kbd>Ctrl</kbd>+<kbd>S</kbd> save</span><span><kbd>Ctrl</kbd>+<kbd>,</kbd> settings</span><span><kbd>Esc</kbd> close</span>`
         : `<span><kbd>↵</kbd> paste</span><span><kbd>Tab</kbd> clipboard</span><span><kbd>Ctrl</kbd>+<kbd>S</kbd> save clipboard</span><span><kbd>Ctrl</kbd>+<kbd>⌫</kbd> delete</span><span><kbd>Ctrl</kbd>+<kbd>,</kbd> settings</span><span><kbd>Esc</kbd> close</span>`;
+    footerEl.innerHTML = `${hints}<span class="build">build ${escapeHtml(__DEVCLIP_BUILD__)}</span>`;
   }
 
   // ----- Actions -------------------------------------------------------------
@@ -320,9 +338,61 @@ function initPalette(): void {
     void runSearch();
   }
 
+  // ----- Settings panel ------------------------------------------------------
+
+  async function openSettings(): Promise<void> {
+    state.settingsOpen = true;
+    setStatus.textContent = "";
+    setStatus.className = "set-status";
+    settingsOverlay.classList.remove("hidden");
+    try {
+      const s = await api.getSettings();
+      setPath.value = s.dbPath;
+      setCap.value = String(s.clipboardCap);
+      defaultDbPath = s.defaultDbPath;
+      setDefaultPath.textContent = s.defaultDbPath;
+    } catch (e) {
+      setStatus.textContent = String(e);
+      setStatus.className = "set-status err";
+    }
+    setPath.focus();
+    setPath.select();
+  }
+
+  function closeSettings(): void {
+    state.settingsOpen = false;
+    settingsOverlay.classList.add("hidden");
+    searchInput.focus();
+  }
+
+  async function saveSettings(): Promise<void> {
+    const cap = Math.max(1, Math.min(100000, parseInt(setCap.value, 10) || 0));
+    try {
+      const updated = await api.setSettings(setPath.value.trim(), cap);
+      setPath.value = updated.dbPath;
+      setCap.value = String(updated.clipboardCap);
+      setStatus.textContent = "Saved ✓  Settings applied.";
+      setStatus.className = "set-status ok";
+    } catch (e) {
+      setStatus.textContent = String(e);
+      setStatus.className = "set-status err";
+    }
+  }
+
   // ----- Keyboard ------------------------------------------------------------
 
   function onKeyDown(ev: KeyboardEvent): void {
+    if (state.settingsOpen) {
+      if (ev.key === "Escape") {
+        ev.preventDefault();
+        closeSettings();
+      } else if (ev.key === "Enter") {
+        ev.preventDefault();
+        void saveSettings();
+      }
+      return;
+    }
+
     if (state.saving) {
       if (ev.key === "Escape") {
         ev.preventDefault();
@@ -371,7 +441,7 @@ function initPalette(): void {
       case ",":
         if (ev.ctrlKey || ev.metaKey) {
           ev.preventDefault();
-          void api.openSettings();
+          void openSettings();
         }
         break;
       case "Backspace":
@@ -397,8 +467,16 @@ function initPalette(): void {
 
   saveConfirm.addEventListener("click", () => void confirmSave());
 
+  setSaveBtn.addEventListener("click", () => void saveSettings());
+  setCancelBtn.addEventListener("click", () => closeSettings());
+  setResetBtn.addEventListener("click", () => {
+    setPath.value = defaultDbPath;
+  });
+  setBuild.textContent = __DEVCLIP_BUILD__;
+
   // When the backend reveals the window, reset to the default (clipboard) view.
   void api.onShow(() => {
+    if (state.settingsOpen) closeSettings();
     state.mode = "clipboard";
     searchInput.value = "";
     searchInput.focus();
@@ -406,76 +484,13 @@ function initPalette(): void {
   });
 
   window.addEventListener("focus", () => {
-    if (!state.saving) searchInput.focus();
+    if (!state.saving && !state.settingsOpen) searchInput.focus();
   });
 
   searchInput.focus();
   void runSearch();
 }
 
-// =============================================================================
-// Settings window
-// =============================================================================
-
-async function initSettings(): Promise<void> {
-  document.getElementById("app")?.classList.add("hidden");
-  const page = $<HTMLDivElement>("#settings-page");
-  page.classList.remove("hidden");
-
-  const pathInput = $<HTMLInputElement>("#set-path");
-  const capInput = $<HTMLInputElement>("#set-cap");
-  const status = $<HTMLDivElement>("#set-status");
-  const defaultPathEl = $<HTMLElement>("#set-default-path");
-
-  const initial = await api.getSettings();
-  pathInput.value = initial.dbPath;
-  capInput.value = String(initial.clipboardCap);
-  defaultPathEl.textContent = initial.defaultDbPath;
-
-  function showStatus(msg: string, ok: boolean): void {
-    status.textContent = msg;
-    status.className = `set-status ${ok ? "ok" : "err"}`;
-  }
-
-  async function save(): Promise<void> {
-    const cap = Math.max(1, Math.min(100000, parseInt(capInput.value, 10) || initial.clipboardCap));
-    try {
-      const updated = await api.setSettings(pathInput.value.trim(), cap);
-      pathInput.value = updated.dbPath;
-      capInput.value = String(updated.clipboardCap);
-      showStatus("Saved ✓  Settings applied.", true);
-    } catch (e) {
-      showStatus(String(e), false);
-    }
-  }
-
-  $<HTMLButtonElement>("#set-save").addEventListener("click", () => void save());
-  $<HTMLButtonElement>("#set-reset").addEventListener("click", () => {
-    pathInput.value = initial.defaultDbPath;
-  });
-  $<HTMLButtonElement>("#set-cancel").addEventListener("click", () => void api.closeSettings());
-
-  document.addEventListener("keydown", (ev) => {
-    if (ev.key === "Escape") {
-      ev.preventDefault();
-      void api.closeSettings();
-    } else if (ev.key === "Enter") {
-      ev.preventDefault();
-      void save();
-    }
-  });
-}
-
 // ----- Entry point -----------------------------------------------------------
 
-// In the real app, the settings window is identified by its window LABEL. In a
-// plain browser (mock dev), fall back to the URL hash.
-const isSettingsWindow = isTauri
-  ? windowLabel() === "settings"
-  : location.hash.replace(/^#\/?/, "") === "settings";
-
-if (isSettingsWindow) {
-  void initSettings();
-} else {
-  initPalette();
-}
+initPalette();

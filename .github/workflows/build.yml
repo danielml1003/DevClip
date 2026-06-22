@@ -34,8 +34,16 @@ jobs:
       - name: Run core tests
         run: cargo test -p devclip-core
 
+      - name: Compute build identifier
+        id: build
+        shell: bash
+        run: echo "id=#${{ github.run_number }} ${GITHUB_SHA:0:7}" >> "$GITHUB_OUTPUT"
+
       - name: Build DevClip (frontend + Tauri installer)
         run: npm run tauri build
+        env:
+          # Baked into the UI so we can confirm which build is running.
+          DEVCLIP_BUILD: ${{ steps.build.outputs.id }}
 
       - name: Upload installers
         uses: actions/upload-artifact@v4

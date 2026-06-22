@@ -1,25 +1,23 @@
 //! Windows: compute where the palette should open, anchored to the text caret.
 //!
-//! Evaluated *before* our window takes focus (otherwise the foreground window /
-//! focused control would be our own palette). Walks a fallback ladder and
-//! returns the desired top-left for the window in **physical** screen pixels:
+//! Evaluated *before* our window takes focus. The chosen point is ALWAYS
+//! clamped to the work area of the monitor that owns the foreground window —
+//! i.e. the screen the user is actively working on — so the palette can never
+//! land on the wrong monitor or off-screen, regardless of caret quirks. Within
+//! that monitor it tries, in order:
 //!
-//! 1. the active **text caret** (classic Win32 caret), placed just below it;
-//! 2. the **focused input control**, placed beneath it;
-//! 3. the **center of the focused application window**;
-//! 4. the **center of the display** the active app is on;
-//! 5. `None` → the caller centers on the primary display.
+//! 1. the active **text caret** (classic Win32 caret), just below it;
+//! 2. beneath the **focused input control**;
+//! 3. the **center of the active monitor** (always succeeds).
 //!
-//! Each candidate is validated to be on a real monitor and clamped to that
-//! monitor's work area, using a window size scaled to the foreground monitor's
-//! DPI — so it behaves correctly across multiple monitors with mixed scaling.
+//! Returns the desired top-left for the window in **physical** screen pixels.
 
 #![cfg(windows)]
 
 use windows::Win32::Foundation::{HWND, POINT, RECT};
 use windows::Win32::Graphics::Gdi::{
-    ClientToScreen, GetMonitorInfoW, MonitorFromPoint, MonitorFromWindow, HMONITOR, MONITORINFO,
-    MONITOR_DEFAULTTONEAREST, MONITOR_DEFAULTTONULL,
+    ClientToScreen, GetMonitorInfoW, MonitorFromWindow, HMONITOR, MONITORINFO,
+    MONITOR_DEFAULTTONEAREST,
 };
 use windows::Win32::UI::HiDpi::GetDpiForWindow;
 use windows::Win32::UI::WindowsAndMessaging::{
@@ -30,7 +28,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 const GAP: i32 = 6;
 
 /// Compute the palette's top-left for the given **logical** window size.
-/// Returns `None` if no on-screen anchor could be resolved (caller centers).
+/// `None` only if there's no foreground window at all (caller centers).
 pub fn caret_origin(logical: (i32, i32)) -> Option<(i32, i32)> {
     unsafe {
         let fg = GetForegroundWindow();
@@ -38,7 +36,11 @@ pub fn caret_origin(logical: (i32, i32)) -> Option<(i32, i32)> {
             return None;
         }
 
-        // Physical window size on the foreground app's monitor.
+        // The active screen = the monitor that owns the foreground window.
+        // Everything is clamped here so we never cross monitors or go off-screen.
+        let work = monitor_work_area(MonitorFromWindow(fg, MONITOR_DEFAULTTONEAREST))?;
+
+        // Window size scaled to that monitor's DPI.
         let dpi = GetDpiForWindow(fg);
         let scale = if dpi == 0 { 1.0 } else { dpi as f64 / 96.0 };
         let wsize = (
@@ -53,62 +55,43 @@ pub fn caret_origin(logical: (i32, i32)) -> Option<(i32, i32)> {
         };
         let have_gti = tid != 0 && GetGUIThreadInfo(tid, &mut gti).is_ok();
 
-        // Level 1: the text caret.
+        // Level 1: the text caret (only if it lands on the active monitor).
         if have_gti && !gti.hwndCaret.0.is_null() {
             let r = gti.rcCaret;
             let mut p = POINT { x: r.left, y: r.bottom };
-            if ClientToScreen(gti.hwndCaret, &mut p).as_bool() {
-                if let Some(work) = work_area_at(p.x, p.y) {
-                    return Some(clamp(p.x, p.y + GAP, wsize, work));
-                }
+            if ClientToScreen(gti.hwndCaret, &mut p).as_bool() && point_in(&work, p.x, p.y) {
+                return Some(clamp(p.x, p.y + GAP, wsize, work));
             }
         }
 
-        // Level 2: beneath the focused input control.
+        // Level 2: beneath the focused input control (if on the active monitor).
         let focus = if have_gti && !gti.hwndFocus.0.is_null() {
             gti.hwndFocus
         } else {
             fg
         };
         if let Some(rect) = window_rect(focus) {
-            if let Some(work) = work_area_at(rect.left, rect.bottom) {
+            let cx = (rect.left + rect.right) / 2;
+            let cy = (rect.top + rect.bottom) / 2;
+            if point_in(&work, cx, cy) {
                 return Some(clamp(rect.left, rect.bottom + GAP, wsize, work));
             }
         }
 
-        // Level 3: the center of the focused application window.
-        if let Some(rect) = window_rect(fg) {
-            let mx = (rect.left + rect.right) / 2;
-            let my = (rect.top + rect.bottom) / 2;
-            if let Some(work) = work_area_at(mx, my) {
-                return Some(clamp(mx - wsize.0 / 2, my - wsize.1 / 2, wsize, work));
-            }
-        }
-
-        // Level 4: the center of the display the active app is on.
-        if let Some(work) = monitor_work_area(MonitorFromWindow(fg, MONITOR_DEFAULTTONEAREST)) {
-            let mx = (work.left + work.right) / 2;
-            let my = (work.top + work.bottom) / 2;
-            return Some(clamp(mx - wsize.0 / 2, my - wsize.1 / 2, wsize, work));
-        }
-
-        None
+        // Level 3: center of the active monitor (always valid).
+        let cx = (work.left + work.right) / 2 - wsize.0 / 2;
+        let cy = (work.top + work.bottom) / 2 - wsize.1 / 2;
+        Some(clamp(cx, cy, wsize, work))
     }
+}
+
+fn point_in(r: &RECT, x: i32, y: i32) -> bool {
+    x >= r.left && x < r.right && y >= r.top && y < r.bottom
 }
 
 unsafe fn window_rect(hwnd: HWND) -> Option<RECT> {
     let mut rect = RECT::default();
     GetWindowRect(hwnd, &mut rect).ok().map(|_| rect)
-}
-
-/// Work area of the monitor under `(x, y)`, or `None` if the point is on no
-/// monitor (used to reject bogus anchor coordinates).
-unsafe fn work_area_at(x: i32, y: i32) -> Option<RECT> {
-    let hmon = MonitorFromPoint(POINT { x, y }, MONITOR_DEFAULTTONULL);
-    if hmon.0.is_null() {
-        return None;
-    }
-    monitor_work_area(hmon)
 }
 
 unsafe fn monitor_work_area(hmon: HMONITOR) -> Option<RECT> {

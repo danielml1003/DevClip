@@ -1,15 +1,14 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Capabilities for the DevClip windows.",
-  "windows": ["main", "settings"],
+  "description": "Capabilities for the main DevClip window.",
+  "windows": ["main"],
   "permissions": [
     "core:default",
     "core:window:allow-hide",
     "core:window:allow-show",
     "core:window:allow-set-focus",
     "core:window:allow-center",
-    "core:window:allow-close",
     "core:window:allow-set-position",
     "core:event:default",
     "global-shortcut:allow-register",

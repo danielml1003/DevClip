@@ -98,14 +98,6 @@ export const api = {
       : mock.setSettings(dbPath, clipboardCap);
   },
 
-  openSettings(): Promise<void> {
-    return isTauri ? invoke("open_settings") : mock.openSettings();
-  },
-
-  closeSettings(): Promise<void> {
-    return isTauri ? invoke("close_settings") : mock.closeSettings();
-  },
-
   hide(): Promise<void> {
     return isTauri ? hideWindow() : mock.hide();
   },
@@ -333,14 +325,6 @@ const mock = (() => {
     async setSettings(dbPath: string, clipboardCap: number): Promise<AppSettings> {
       settings = { ...settings, dbPath, clipboardCap: Math.max(1, Math.min(100000, clipboardCap)) };
       return { ...settings };
-    },
-    async openSettings(): Promise<void> {
-      location.hash = "settings";
-      location.reload();
-    },
-    async closeSettings(): Promise<void> {
-      location.hash = "";
-      location.reload();
     },
     async hide(): Promise<void> {
       // eslint-disable-next-line no-console

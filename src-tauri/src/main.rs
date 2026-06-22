@@ -91,8 +91,6 @@ fn main() {
             commands::paste,
             commands::get_settings,
             commands::set_settings,
-            commands::open_settings,
-            commands::close_settings,
         ])
         .run(tauri::generate_context!())
         .expect("error while running DevClip");
@@ -108,20 +106,29 @@ fn toggle_window(app: &AppHandle) {
     } else {
         // Everything that inspects the *currently* focused app must happen
         // before we show/focus our own window.
-        position_window(app, &win);
+        let pos = position_window(app, &win);
         let _ = win.show();
         let _ = win.set_focus();
+        // Re-assert the position after showing: on Windows, set_position before
+        // the first show is sometimes overridden by the OS's default placement,
+        // which can land the window on the wrong monitor.
+        #[cfg(windows)]
+        if let Some(p) = pos {
+            let _ = win.set_position(p);
+        }
+        #[cfg(not(windows))]
+        let _ = pos;
         // Tell the frontend to reset to a clean, focused search state.
         let _ = app.emit("devclip://show", ());
     }
 }
 
-/// Place the palette before showing it.
+/// Place the palette before showing it; returns the position it set (if any).
 ///
 /// On Windows: remember the focused app (for paste-back) and open at the text
-/// caret, walking a fallback ladder (caret → input box → app center → display
-/// center → screen center). On other platforms: open at the mouse cursor.
-fn position_window(app: &AppHandle, win: &WebviewWindow) {
+/// caret, always clamped to the active app's monitor. On other platforms: open
+/// at the mouse cursor.
+fn position_window(app: &AppHandle, win: &WebviewWindow) -> Option<PhysicalPosition<i32>> {
     #[cfg(windows)]
     {
         if let Some(state) = app.try_state::<AppState>() {
@@ -133,10 +140,13 @@ fn position_window(app: &AppHandle, win: &WebviewWindow) {
             // Safety net: only trust the point if it lands on a real monitor in
             // Tauri's own coordinate space (the space set_position uses).
             Some((x, y)) if point_on_a_monitor(win, x, y) => {
-                let _ = win.set_position(PhysicalPosition::new(x, y));
+                let p = PhysicalPosition::new(x, y);
+                let _ = win.set_position(p);
+                Some(p)
             }
             _ => {
                 let _ = win.center();
+                None
             }
         }
     }
@@ -144,7 +154,7 @@ fn position_window(app: &AppHandle, win: &WebviewWindow) {
     #[cfg(not(windows))]
     {
         let _ = app; // unused off Windows
-        position_at_cursor(win);
+        position_at_cursor(win)
     }
 }
 
@@ -167,10 +177,10 @@ fn point_on_a_monitor(win: &WebviewWindow, x: i32, y: i32) -> bool {
 /// monitor the cursor is on (so it always appears on the active screen).
 /// Used on macOS/Linux; Windows anchors to the text caret instead.
 #[cfg(not(windows))]
-fn position_at_cursor(win: &WebviewWindow) {
+fn position_at_cursor(win: &WebviewWindow) -> Option<PhysicalPosition<i32>> {
     let Ok(cursor) = win.cursor_position() else {
         let _ = win.center();
-        return;
+        return None;
     };
 
     // Find the monitor under the cursor; fall back to current/primary.
@@ -194,7 +204,7 @@ fn position_at_cursor(win: &WebviewWindow) {
 
     let Some(monitor) = monitor else {
         let _ = win.center();
-        return;
+        return None;
     };
 
     let mpos = monitor.position();
@@ -212,7 +222,9 @@ fn position_at_cursor(win: &WebviewWindow) {
     x = x.min(max_x).max(mpos.x);
     y = y.min(max_y).max(mpos.y);
 
-    let _ = win.set_position(PhysicalPosition::new(x, y));
+    let p = PhysicalPosition::new(x, y);
+    let _ = win.set_position(p);
+    Some(p)
 }
 
 /// Poll the OS clipboard and append changes to the (capped) history.
