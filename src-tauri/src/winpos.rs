@@ -19,6 +19,10 @@ use windows::Win32::Graphics::Gdi::{
     ClientToScreen, GetMonitorInfoW, MonitorFromWindow, HMONITOR, MONITORINFO,
     MONITOR_DEFAULTTONEAREST,
 };
+use windows::Win32::System::Com::{
+    CoCreateInstance, CoInitializeEx, CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED,
+};
+use windows::Win32::UI::Accessibility::{CUIAutomation, IUIAutomation};
 use windows::Win32::UI::HiDpi::GetDpiForWindow;
 use windows::Win32::UI::WindowsAndMessaging::{
     GetForegroundWindow, GetGUIThreadInfo, GetWindowRect, GetWindowThreadProcessId, GUITHREADINFO,
@@ -55,12 +59,23 @@ pub fn caret_origin(logical: (i32, i32)) -> Option<(i32, i32)> {
         };
         let have_gti = tid != 0 && GetGUIThreadInfo(tid, &mut gti).is_ok();
 
-        // Level 1: the text caret (only if it lands on the active monitor).
+        // Level 1: the classic Win32 text caret (precise; native edit controls).
         if have_gti && !gti.hwndCaret.0.is_null() {
             let r = gti.rcCaret;
             let mut p = POINT { x: r.left, y: r.bottom };
             if ClientToScreen(gti.hwndCaret, &mut p).as_bool() && point_in(&work, p.x, p.y) {
                 return Some(clamp(p.x, p.y + GAP, wsize, work));
+            }
+        }
+
+        // Level 1b: UI Automation focused element — this is what finds the text
+        // box in Chromium/Electron apps (Discord, browsers, Electron editors)
+        // which don't expose a classic Win32 caret. Place just beneath it.
+        if let Some(r) = focused_element_rect() {
+            let cx = (r.left + r.right) / 2;
+            let cy = (r.top + r.bottom) / 2;
+            if point_in(&work, cx, cy) {
+                return Some(clamp(r.left, r.bottom + GAP, wsize, work));
             }
         }
 
@@ -87,6 +102,26 @@ pub fn caret_origin(logical: (i32, i32)) -> Option<(i32, i32)> {
 
 fn point_in(r: &RECT, x: i32, y: i32) -> bool {
     x >= r.left && x < r.right && y >= r.top && y < r.bottom
+}
+
+/// Screen rectangle of the currently focused UI element, via UI Automation.
+/// Works across modern frameworks (Chromium/Electron/UWP/WinUI) where the
+/// classic Win32 caret is absent. Returns `None` if UIA is unavailable or the
+/// focused element has no usable bounds.
+unsafe fn focused_element_rect() -> Option<RECT> {
+    // Safe to call repeatedly: returns S_FALSE if COM is already initialised on
+    // this (the main/UI) thread. We never CoUninitialize.
+    let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+
+    let automation: IUIAutomation =
+        CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER).ok()?;
+    let focused = automation.GetFocusedElement().ok()?;
+    let r = focused.CurrentBoundingRectangle().ok()?;
+    if r.right > r.left && r.bottom > r.top {
+        Some(r)
+    } else {
+        None
+    }
 }
 
 unsafe fn window_rect(hwnd: HWND) -> Option<RECT> {
