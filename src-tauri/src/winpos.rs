@@ -1,132 +1,45 @@
-//! Windows: compute where the palette should open, anchored to the text caret.
+//! Windows: compute where the palette should open.
 //!
-//! Evaluated *before* our window takes focus. The chosen point is ALWAYS
-//! clamped to the work area of the monitor that owns the foreground window —
-//! i.e. the screen the user is actively working on — so the palette can never
-//! land on the wrong monitor or off-screen, regardless of caret quirks. Within
-//! that monitor it tries, in order:
-//!
-//! 1. the active **text caret** (classic Win32 caret), just below it;
-//! 2. beneath the **focused input control**;
-//! 3. the **center of the active monitor** (always succeeds).
-//!
-//! Returns the desired top-left for the window in **physical** screen pixels.
+//! Per the chosen behavior, the palette opens **centered on the active screen**
+//! — the monitor that owns the foreground window (the app you're working in).
+//! This is evaluated before our window takes focus, is always on-screen, and
+//! never crosses to the wrong monitor.
 
 #![cfg(windows)]
 
-use windows::Win32::Foundation::{HWND, POINT, RECT};
+use windows::Win32::Foundation::RECT;
 use windows::Win32::Graphics::Gdi::{
-    ClientToScreen, GetMonitorInfoW, MonitorFromWindow, HMONITOR, MONITORINFO,
-    MONITOR_DEFAULTTONEAREST,
+    GetMonitorInfoW, MonitorFromWindow, HMONITOR, MONITORINFO, MONITOR_DEFAULTTONEAREST,
 };
-use windows::Win32::System::Com::{
-    CoCreateInstance, CoInitializeEx, CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED,
-};
-use windows::Win32::UI::Accessibility::{CUIAutomation, IUIAutomation};
 use windows::Win32::UI::HiDpi::GetDpiForWindow;
-use windows::Win32::UI::WindowsAndMessaging::{
-    GetForegroundWindow, GetGUIThreadInfo, GetWindowRect, GetWindowThreadProcessId, GUITHREADINFO,
-};
+use windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
 
-/// Small gap (px) placed between the caret / input box and the palette.
-const GAP: i32 = 6;
-
-/// Compute the palette's top-left for the given **logical** window size.
-/// `None` only if there's no foreground window at all (caller centers).
-pub fn caret_origin(logical: (i32, i32)) -> Option<(i32, i32)> {
+/// Top-left for the palette (physical px), centered on the active monitor for
+/// the given **logical** window size. `None` if there's no foreground window
+/// (caller centers on the primary display).
+pub fn active_screen_origin(logical: (i32, i32)) -> Option<(i32, i32)> {
     unsafe {
         let fg = GetForegroundWindow();
         if fg.0.is_null() {
             return None;
         }
 
-        // The active screen = the monitor that owns the foreground window.
-        // Everything is clamped here so we never cross monitors or go off-screen.
         let work = monitor_work_area(MonitorFromWindow(fg, MONITOR_DEFAULTTONEAREST))?;
 
-        // Window size scaled to that monitor's DPI.
+        // Window size scaled to the active monitor's DPI.
         let dpi = GetDpiForWindow(fg);
         let scale = if dpi == 0 { 1.0 } else { dpi as f64 / 96.0 };
-        let wsize = (
-            (logical.0 as f64 * scale).round() as i32,
-            (logical.1 as f64 * scale).round() as i32,
-        );
+        let w = (logical.0 as f64 * scale).round() as i32;
+        let h = (logical.1 as f64 * scale).round() as i32;
 
-        let tid = GetWindowThreadProcessId(fg, None);
-        let mut gti = GUITHREADINFO {
-            cbSize: std::mem::size_of::<GUITHREADINFO>() as u32,
-            ..Default::default()
-        };
-        let have_gti = tid != 0 && GetGUIThreadInfo(tid, &mut gti).is_ok();
+        let cx = (work.left + work.right) / 2 - w / 2;
+        let cy = (work.top + work.bottom) / 2 - h / 2;
 
-        // Level 1: the classic Win32 text caret (precise; native edit controls).
-        if have_gti && !gti.hwndCaret.0.is_null() {
-            let r = gti.rcCaret;
-            let mut p = POINT { x: r.left, y: r.bottom };
-            if ClientToScreen(gti.hwndCaret, &mut p).as_bool() && point_in(&work, p.x, p.y) {
-                return Some(clamp(p.x, p.y + GAP, wsize, work));
-            }
-        }
-
-        // Level 1b: UI Automation focused element — this is what finds the text
-        // box in Chromium/Electron apps (Discord, browsers, Electron editors)
-        // which don't expose a classic Win32 caret. Place just beneath it.
-        if let Some(r) = focused_element_rect() {
-            let cx = (r.left + r.right) / 2;
-            let cy = (r.top + r.bottom) / 2;
-            if point_in(&work, cx, cy) {
-                return Some(clamp(r.left, r.bottom + GAP, wsize, work));
-            }
-        }
-
-        // Level 2: beneath the focused input control (if on the active monitor).
-        let focus = if have_gti && !gti.hwndFocus.0.is_null() {
-            gti.hwndFocus
-        } else {
-            fg
-        };
-        if let Some(rect) = window_rect(focus) {
-            let cx = (rect.left + rect.right) / 2;
-            let cy = (rect.top + rect.bottom) / 2;
-            if point_in(&work, cx, cy) {
-                return Some(clamp(rect.left, rect.bottom + GAP, wsize, work));
-            }
-        }
-
-        // Level 3: center of the active monitor (always valid).
-        let cx = (work.left + work.right) / 2 - wsize.0 / 2;
-        let cy = (work.top + work.bottom) / 2 - wsize.1 / 2;
-        Some(clamp(cx, cy, wsize, work))
+        // Clamp defensively (handles oversized windows / odd work areas).
+        let x = cx.min(work.right - w).max(work.left);
+        let y = cy.min(work.bottom - h).max(work.top);
+        Some((x, y))
     }
-}
-
-fn point_in(r: &RECT, x: i32, y: i32) -> bool {
-    x >= r.left && x < r.right && y >= r.top && y < r.bottom
-}
-
-/// Screen rectangle of the currently focused UI element, via UI Automation.
-/// Works across modern frameworks (Chromium/Electron/UWP/WinUI) where the
-/// classic Win32 caret is absent. Returns `None` if UIA is unavailable or the
-/// focused element has no usable bounds.
-unsafe fn focused_element_rect() -> Option<RECT> {
-    // Safe to call repeatedly: returns S_FALSE if COM is already initialised on
-    // this (the main/UI) thread. We never CoUninitialize.
-    let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
-
-    let automation: IUIAutomation =
-        CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER).ok()?;
-    let focused = automation.GetFocusedElement().ok()?;
-    let r = focused.CurrentBoundingRectangle().ok()?;
-    if r.right > r.left && r.bottom > r.top {
-        Some(r)
-    } else {
-        None
-    }
-}
-
-unsafe fn window_rect(hwnd: HWND) -> Option<RECT> {
-    let mut rect = RECT::default();
-    GetWindowRect(hwnd, &mut rect).ok().map(|_| rect)
 }
 
 unsafe fn monitor_work_area(hmon: HMONITOR) -> Option<RECT> {
@@ -142,11 +55,4 @@ unsafe fn monitor_work_area(hmon: HMONITOR) -> Option<RECT> {
     } else {
         None
     }
-}
-
-/// Clamp a desired top-left so a window of `wsize` stays within `work`.
-fn clamp(x: i32, y: i32, wsize: (i32, i32), work: RECT) -> (i32, i32) {
-    let nx = x.min(work.right - wsize.0).max(work.left);
-    let ny = y.min(work.bottom - wsize.1).max(work.top);
-    (nx, ny)
 }
