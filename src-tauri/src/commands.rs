@@ -255,6 +255,101 @@ pub fn set_settings(
 // blank in production builds — a known Tauri v2 limitation
 // (tauri-apps/tauri#14177).
 
+// ----- LAN sync ----------------------------------------------------------------
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncInfoDto {
+    pub device_id: String,
+    pub device_name: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KnownDeviceDto {
+    pub device_id: String,
+    pub name: String,
+    pub addr: String,
+    pub last_synced_at: i64,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncResultDto {
+    pub snippets_added: usize,
+    pub snippets_updated: usize,
+    pub clips_added: usize,
+}
+
+/// This machine's sync identity and friendly name.
+#[tauri::command]
+pub fn sync_info(state: State<AppState>) -> Result<SyncInfoDto, String> {
+    let s = state.settings.lock().map_err(err)?;
+    Ok(SyncInfoDto {
+        device_id: s.device_id.clone(),
+        device_name: s.device_name.clone(),
+    })
+}
+
+/// Rename this machine (the name peers see). Persists immediately.
+#[tauri::command]
+pub fn set_device_name(state: State<AppState>, name: String) -> Result<SyncInfoDto, String> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err("Device name cannot be empty".into());
+    }
+    let mut s = state.settings.lock().map_err(err)?;
+    s.device_name = name.to_string();
+    s.save(&state.config_path).map_err(err)?;
+    Ok(SyncInfoDto {
+        device_id: s.device_id.clone(),
+        device_name: s.device_name.clone(),
+    })
+}
+
+/// Scan the local network for other DevClip instances (~1.2s).
+#[tauri::command]
+pub fn discover_peers(app: AppHandle) -> Result<Vec<crate::sync::Peer>, String> {
+    crate::sync::discover(&app, 1200)
+}
+
+/// Sync with a peer at "ip:port"; returns what changed on this machine.
+#[tauri::command]
+pub fn sync_with_peer(app: AppHandle, addr: String) -> Result<SyncResultDto, String> {
+    let stats = crate::sync::sync_with(&app, &addr)?;
+    Ok(SyncResultDto {
+        snippets_added: stats.snippets_added,
+        snippets_updated: stats.snippets_updated,
+        clips_added: stats.clips_added,
+    })
+}
+
+/// Devices we've synced with before (for one-tap re-sync), newest first.
+#[tauri::command]
+pub fn list_known_devices(state: State<AppState>) -> Result<Vec<KnownDeviceDto>, String> {
+    let s = state.settings.lock().map_err(err)?;
+    let mut devices: Vec<KnownDeviceDto> = s
+        .known_devices
+        .iter()
+        .map(|d| KnownDeviceDto {
+            device_id: d.device_id.clone(),
+            name: d.name.clone(),
+            addr: d.addr.clone(),
+            last_synced_at: d.last_synced_at,
+        })
+        .collect();
+    devices.sort_by(|a, b| b.last_synced_at.cmp(&a.last_synced_at));
+    Ok(devices)
+}
+
+/// Forget a previously-synced device.
+#[tauri::command]
+pub fn forget_device(state: State<AppState>, device_id: String) -> Result<(), String> {
+    let mut s = state.settings.lock().map_err(err)?;
+    s.known_devices.retain(|d| d.device_id != device_id);
+    s.save(&state.config_path).map_err(err)
+}
+
 // ----- Paste ------------------------------------------------------------------
 
 /// Paste `content` into the previously focused application.

@@ -3,6 +3,7 @@
 
 mod commands;
 mod settings;
+mod sync;
 #[cfg(windows)]
 mod winpos;
 
@@ -47,7 +48,11 @@ fn main() {
             let config_path = config_dir.join("settings.json");
             let default_db_path = data_dir.join("devclip.db");
 
-            let settings = Settings::load_or_default(&config_path, &data_dir);
+            let (settings, changed) = Settings::load_or_default(&config_path, &data_dir);
+            // Persist a first-run device id / name so it stays stable.
+            if changed {
+                let _ = settings.save(&config_path);
+            }
             if let Some(parent) = settings.db_path.parent() {
                 std::fs::create_dir_all(parent).ok();
             }
@@ -70,6 +75,9 @@ fn main() {
             app.global_shortcut().register(shortcut)?;
 
             start_clipboard_monitor(app.handle().clone());
+            // LAN sync discovery responder + sync server (best-effort; never
+            // fatal if a port is busy).
+            sync::start(app.handle().clone());
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -91,6 +99,12 @@ fn main() {
             commands::paste,
             commands::get_settings,
             commands::set_settings,
+            commands::sync_info,
+            commands::set_device_name,
+            commands::discover_peers,
+            commands::sync_with_peer,
+            commands::list_known_devices,
+            commands::forget_device,
         ])
         .run(tauri::generate_context!())
         .expect("error while running DevClip");
