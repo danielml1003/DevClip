@@ -12,6 +12,9 @@ description = "Pure-Rust core for DevClip: data model, SQLite storage and fuzzy 
 
 [dependencies]
 rusqlite = { version = "0.31", features = ["bundled"] }
+# Stable, cross-machine snippet identity for LAN sync (no GUI/Tauri pull-in, so
+# the crate stays headless-testable).
+uuid = { version = "1", features = ["v4"] }
 
 [dev-dependencies]
 tempfile = "3"

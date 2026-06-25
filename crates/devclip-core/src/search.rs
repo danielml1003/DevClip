@@ -235,9 +235,11 @@ mod tests {
     fn snip(id: i64, name: &str, content: &str) -> Snippet {
         Snippet {
             id,
+            sync_id: format!("sync-{id}"),
             name: name.to_string(),
             content: content.to_string(),
             created_at: 0,
+            updated_at: 0,
             last_used_at: None,
             use_count: 0,
         }

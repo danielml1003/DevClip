@@ -6,11 +6,20 @@
 /// easy (de)serialisation in the Tauri layer.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Snippet {
+    /// Local, per-machine row id (auto-increment). NOT stable across machines —
+    /// use `sync_id` to match the same logical snippet on a different device.
     pub id: i64,
+    /// Stable, cross-machine identity (a UUID). Assigned once on insert and
+    /// preserved by LAN sync so the same snippet is recognised everywhere.
+    pub sync_id: String,
     pub name: String,
     pub content: String,
     /// Unix seconds.
     pub created_at: i64,
+    /// Unix seconds of the last name/content edit. This is the field sync uses
+    /// for last-write-wins; it is bumped on insert and on edit, but NOT on mere
+    /// use (using a snippet must not clobber a newer edit made elsewhere).
+    pub updated_at: i64,
     /// Unix seconds; `None` until the snippet is used for the first time.
     pub last_used_at: Option<i64>,
     pub use_count: i64,

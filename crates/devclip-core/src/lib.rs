@@ -14,7 +14,7 @@ pub mod store;
 
 pub use model::{ClipboardEntry, ResultKind, ScoredSnippet, Snippet, UnifiedResult};
 pub use search::{search, search_unified};
-pub use store::{Store, DEFAULT_CLIPBOARD_CAP};
+pub use store::{MergeStats, Store, DEFAULT_CLIPBOARD_CAP};
 
 /// Current unix time in seconds. Convenience for callers; core functions take
 /// an explicit `now` so they stay deterministic and testable.
@@ -24,4 +24,9 @@ pub fn now_unix() -> i64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0)
+}
+
+/// Generate a fresh, stable sync identity (UUID v4) for a new snippet.
+pub fn new_sync_id() -> String {
+    uuid::Uuid::new_v4().to_string()
 }
