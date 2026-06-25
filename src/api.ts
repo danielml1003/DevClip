@@ -8,9 +8,13 @@
 import type {
   AppSettings,
   ClipboardEntry,
+  KnownDevice,
   Mode,
+  Peer,
   SearchResult,
   Snippet,
+  SyncInfo,
+  SyncResult,
   UnifiedResult,
 } from "./types";
 
@@ -106,6 +110,37 @@ export const api = {
   onShow(handler: () => void): Promise<() => void> {
     return isTauri ? listenImpl("devclip://show", handler) : mock.onShow(handler);
   },
+
+  // ----- LAN sync ------------------------------------------------------------
+
+  /** This machine's sync identity (id + friendly name). */
+  syncInfo(): Promise<SyncInfo> {
+    return isTauri ? invoke("sync_info") : mock.syncInfo();
+  },
+
+  /** Rename this machine (the name peers see). */
+  setDeviceName(name: string): Promise<SyncInfo> {
+    return isTauri ? invoke("set_device_name", { name }) : mock.setDeviceName(name);
+  },
+
+  /** Scan the local network for other DevClip instances (~1.2s). */
+  discoverPeers(): Promise<Peer[]> {
+    return isTauri ? invoke("discover_peers") : mock.discoverPeers();
+  },
+
+  /** Sync with a peer at "ip:port"; resolves with what changed locally. */
+  syncWithPeer(addr: string): Promise<SyncResult> {
+    return isTauri ? invoke("sync_with_peer", { addr }) : mock.syncWithPeer(addr);
+  },
+
+  /** Devices synced with before, for one-tap re-sync. */
+  listKnownDevices(): Promise<KnownDevice[]> {
+    return isTauri ? invoke("list_known_devices") : mock.listKnownDevices();
+  },
+
+  forgetDevice(deviceId: string): Promise<void> {
+    return isTauri ? invoke("forget_device", { deviceId }) : mock.forgetDevice(deviceId);
+  },
 };
 
 export { isTauri };
@@ -135,6 +170,8 @@ const mock = (() => {
     clipboardCap: 100,
     defaultDbPath: "C:\\Users\\you\\AppData\\Roaming\\dev.devclip.app\\devclip.db",
   };
+  let deviceName = "This PC (mock)";
+  let knownDevices: KnownDevice[] = [];
 
   function s(
     id: number,
@@ -332,6 +369,35 @@ const mock = (() => {
     },
     async onShow(_handler: () => void): Promise<() => void> {
       return () => {};
+    },
+    async syncInfo(): Promise<SyncInfo> {
+      return { deviceId: "mock-device", deviceName };
+    },
+    async setDeviceName(name: string): Promise<SyncInfo> {
+      deviceName = name.trim() || deviceName;
+      return { deviceId: "mock-device", deviceName };
+    },
+    async discoverPeers(): Promise<Peer[]> {
+      // Pretend a scan took a moment and found one peer.
+      await new Promise((r) => setTimeout(r, 600));
+      return [
+        { deviceId: "peer-1", deviceName: "Daniel's Home Desktop", addr: "192.168.1.15:19485" },
+      ];
+    },
+    async syncWithPeer(addr: string): Promise<SyncResult> {
+      // eslint-disable-next-line no-console
+      console.info("[mock] sync with", addr);
+      knownDevices = [
+        { deviceId: "peer-1", name: "Daniel's Home Desktop", addr, lastSyncedAt: now() },
+        ...knownDevices.filter((d) => d.deviceId !== "peer-1"),
+      ];
+      return { snippetsAdded: 2, snippetsUpdated: 1, clipsAdded: 4 };
+    },
+    async listKnownDevices(): Promise<KnownDevice[]> {
+      return [...knownDevices];
+    },
+    async forgetDevice(deviceId: string): Promise<void> {
+      knownDevices = knownDevices.filter((d) => d.deviceId !== deviceId);
     },
   };
 

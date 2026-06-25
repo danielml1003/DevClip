@@ -55,6 +55,28 @@
           <input id="set-cap" type="number" min="1" max="100000" step="1" />
         </section>
 
+        <section class="set-group">
+          <label for="set-device-name">LAN sync</label>
+          <p class="set-help">
+            Sync snippets and clipboard history with another DevClip on the same
+            Wi-Fi or local network — no cloud, no account. Open DevClip on both
+            machines, scan, then sync. Newer edits win; nothing is deleted.
+          </p>
+          <p class="set-help dim">This device's name (what other machines see):</p>
+          <input id="set-device-name" type="text" spellcheck="false" />
+
+          <div class="sync-bar">
+            <button id="sync-scan" class="ghost">Scan for devices</button>
+            <span id="sync-status" class="set-status"></span>
+          </div>
+          <ul id="sync-peers" class="sync-list"></ul>
+
+          <div id="sync-known-wrap" class="hidden">
+            <p class="set-help dim">Saved devices</p>
+            <ul id="sync-known" class="sync-list"></ul>
+          </div>
+        </section>
+
         <div id="set-status" class="set-status"></div>
 
         <div class="set-actions">

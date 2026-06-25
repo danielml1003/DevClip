@@ -406,6 +406,70 @@ button.ghost:hover {
   color: var(--text);
   border-color: var(--accent);
 }
+button.ghost:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* LAN sync */
+.sync-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 4px;
+}
+.sync-bar .set-status {
+  min-height: 0;
+  margin: 0;
+}
+.sync-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.sync-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--row);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px 8px 12px;
+}
+.sync-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.sync-name {
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sync-addr {
+  font-size: 11px;
+  color: var(--text-dim);
+  font-family: var(--mono);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sync-go,
+.sync-forget {
+  align-self: center;
+  padding: 6px 14px;
+  font-size: 12px;
+}
+#sync-known-wrap {
+  margin-top: 16px;
+}
 
 .hidden {
   display: none !important;

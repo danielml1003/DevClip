@@ -14,7 +14,7 @@
 //! and is unit-tested there; this module is just framing and sockets.
 
 use std::io::{Read, Write};
-use std::net::{TcpListener, TcpStream, UdpSocket};
+use std::net::{TcpListener, TcpStream, ToSocketAddrs, UdpSocket};
 use std::time::{Duration, Instant};
 
 use devclip_core::{ClipboardEntry, MergeStats, Snippet};
@@ -372,7 +372,14 @@ pub fn sync_with(app: &AppHandle, addr: &str) -> Result<MergeStats, String> {
     let our_payload = build_payload(&state)?;
     let out = serde_json::to_vec(&our_payload).map_err(|e| e.to_string())?;
 
-    let mut stream = TcpStream::connect(addr)
+    // Resolve and connect with a bounded timeout so an unreachable peer fails
+    // fast instead of blocking on the OS default connect timeout.
+    let sock_addr = addr
+        .to_socket_addrs()
+        .map_err(|e| format!("invalid address {addr}: {e}"))?
+        .next()
+        .ok_or_else(|| format!("could not resolve {addr}"))?;
+    let mut stream = TcpStream::connect_timeout(&sock_addr, Duration::from_secs(5))
         .map_err(|e| format!("could not reach {addr}: {e}"))?;
     stream.set_read_timeout(Some(Duration::from_secs(30))).ok();
     stream.set_write_timeout(Some(Duration::from_secs(30))).ok();

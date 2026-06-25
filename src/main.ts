@@ -1,5 +1,14 @@
 import { api } from "./api";
-import type { ClipboardEntry, ItemKind, Mode, SearchResult, UnifiedResult } from "./types";
+import type {
+  ClipboardEntry,
+  ItemKind,
+  KnownDevice,
+  Mode,
+  Peer,
+  SearchResult,
+  SyncResult,
+  UnifiedResult,
+} from "./types";
 import "./styles.css";
 
 /** Build identifier injected at build time (see vite.config.ts). */
@@ -97,6 +106,13 @@ function initPalette(): void {
   const setResetBtn = $<HTMLButtonElement>("#set-reset");
   const setCancelBtn = $<HTMLButtonElement>("#set-cancel");
   const setBuild = $<HTMLElement>("#set-build");
+
+  const setDeviceName = $<HTMLInputElement>("#set-device-name");
+  const syncScanBtn = $<HTMLButtonElement>("#sync-scan");
+  const syncStatus = $<HTMLSpanElement>("#sync-status");
+  const syncPeersEl = $<HTMLUListElement>("#sync-peers");
+  const syncKnownWrap = $<HTMLDivElement>("#sync-known-wrap");
+  const syncKnownEl = $<HTMLUListElement>("#sync-known");
 
   interface State {
     mode: Mode;
@@ -355,6 +371,7 @@ function initPalette(): void {
       setStatus.textContent = String(e);
       setStatus.className = "set-status err";
     }
+    void loadSyncSection();
     setPath.focus();
     setPath.select();
   }
@@ -379,6 +396,133 @@ function initPalette(): void {
     }
   }
 
+  // ----- LAN sync ------------------------------------------------------------
+
+  function syncMsg(text: string, kind: "ok" | "err" | "" = ""): void {
+    syncStatus.textContent = text;
+    syncStatus.className = "set-status" + (kind ? ` ${kind}` : "");
+  }
+
+  /** Load this device's name + saved-device list when settings opens. */
+  async function loadSyncSection(): Promise<void> {
+    syncPeersEl.innerHTML = "";
+    syncMsg("");
+    try {
+      const info = await api.syncInfo();
+      setDeviceName.value = info.deviceName;
+    } catch {
+      // Non-fatal: leave the field as-is.
+    }
+    await renderKnownDevices();
+  }
+
+  function syncResultText(r: SyncResult): string {
+    const parts: string[] = [];
+    if (r.snippetsAdded) parts.push(`${r.snippetsAdded} snippet${r.snippetsAdded === 1 ? "" : "s"} added`);
+    if (r.snippetsUpdated) parts.push(`${r.snippetsUpdated} updated`);
+    if (r.clipsAdded) parts.push(`${r.clipsAdded} clip${r.clipsAdded === 1 ? "" : "s"} added`);
+    return parts.length ? `Synced ✓  ${parts.join(", ")}.` : "Synced ✓  Already up to date.";
+  }
+
+  async function syncWith(addr: string, label: string): Promise<void> {
+    syncMsg(`Syncing with ${label}…`);
+    try {
+      const r = await api.syncWithPeer(addr);
+      syncMsg(syncResultText(r), "ok");
+      await renderKnownDevices();
+      // Local data changed — refresh the list behind the overlay.
+      await runSearch();
+    } catch (e) {
+      syncMsg(String(e), "err");
+    }
+  }
+
+  async function scanForPeers(): Promise<void> {
+    syncScanBtn.disabled = true;
+    syncScanBtn.textContent = "Scanning…";
+    syncPeersEl.innerHTML = "";
+    syncMsg("Looking for DevClip on your network…");
+    try {
+      const peers = await api.discoverPeers();
+      renderPeers(peers);
+      syncMsg(
+        peers.length === 0
+          ? "No devices found. Open DevClip on the other machine and make sure both are on the same network."
+          : `Found ${peers.length} device${peers.length === 1 ? "" : "s"}.`,
+        peers.length === 0 ? "" : "ok",
+      );
+    } catch (e) {
+      syncMsg(String(e), "err");
+    } finally {
+      syncScanBtn.disabled = false;
+      syncScanBtn.textContent = "Scan for devices";
+    }
+  }
+
+  function syncRow(name: string, sub: string): { li: HTMLLIElement; info: HTMLDivElement } {
+    const li = document.createElement("li");
+    li.className = "sync-row";
+    const info = document.createElement("div");
+    info.className = "sync-info";
+    info.innerHTML = `<span class="sync-name">${escapeHtml(name)}</span><span class="sync-addr">${escapeHtml(sub)}</span>`;
+    return { li, info };
+  }
+
+  function renderPeers(peers: Peer[]): void {
+    syncPeersEl.innerHTML = "";
+    for (const p of peers) {
+      const { li, info } = syncRow(p.deviceName, p.addr);
+      const btn = document.createElement("button");
+      btn.className = "primary sync-go";
+      btn.textContent = "Sync";
+      btn.addEventListener("click", () => void syncWith(p.addr, p.deviceName));
+      li.append(info, btn);
+      syncPeersEl.appendChild(li);
+    }
+  }
+
+  async function renderKnownDevices(): Promise<void> {
+    let devices: KnownDevice[] = [];
+    try {
+      devices = await api.listKnownDevices();
+    } catch {
+      devices = [];
+    }
+    syncKnownEl.innerHTML = "";
+    if (devices.length === 0) {
+      syncKnownWrap.classList.add("hidden");
+      return;
+    }
+    syncKnownWrap.classList.remove("hidden");
+    for (const d of devices) {
+      const { li, info } = syncRow(d.name, `last synced ${timeAgo(d.lastSyncedAt)} · ${d.addr}`);
+      const go = document.createElement("button");
+      go.className = "ghost sync-go";
+      go.textContent = "Sync";
+      go.addEventListener("click", () => void syncWith(d.addr, d.name));
+      const forget = document.createElement("button");
+      forget.className = "ghost sync-forget";
+      forget.textContent = "Forget";
+      forget.addEventListener("click", async () => {
+        await api.forgetDevice(d.deviceId);
+        await renderKnownDevices();
+      });
+      li.append(info, go, forget);
+      syncKnownEl.appendChild(li);
+    }
+  }
+
+  async function saveDeviceName(): Promise<void> {
+    const name = setDeviceName.value.trim();
+    if (!name) return;
+    try {
+      const info = await api.setDeviceName(name);
+      setDeviceName.value = info.deviceName;
+    } catch (e) {
+      syncMsg(String(e), "err");
+    }
+  }
+
   // ----- Keyboard ------------------------------------------------------------
 
   function onKeyDown(ev: KeyboardEvent): void {
@@ -387,8 +531,14 @@ function initPalette(): void {
         ev.preventDefault();
         closeSettings();
       } else if (ev.key === "Enter") {
-        ev.preventDefault();
-        void saveSettings();
+        // Enter saves the field you're in; on buttons, let them click normally.
+        if (ev.target === setDeviceName) {
+          ev.preventDefault();
+          void saveDeviceName();
+        } else if (ev.target === setPath || ev.target === setCap) {
+          ev.preventDefault();
+          void saveSettings();
+        }
       }
       return;
     }
@@ -473,6 +623,9 @@ function initPalette(): void {
     setPath.value = defaultDbPath;
   });
   setBuild.textContent = __DEVCLIP_BUILD__;
+
+  syncScanBtn.addEventListener("click", () => void scanForPeers());
+  setDeviceName.addEventListener("change", () => void saveDeviceName());
 
   // When the backend reveals the window, reset to the default (clipboard) view.
   void api.onShow(() => {

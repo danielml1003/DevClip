@@ -307,16 +307,22 @@ pub fn set_device_name(state: State<AppState>, name: String) -> Result<SyncInfoD
     })
 }
 
-/// Scan the local network for other DevClip instances (~1.2s).
+/// Scan the local network for other DevClip instances (~1.2s). Runs on the
+/// blocking pool so the UI stays responsive while it waits for replies.
 #[tauri::command]
-pub fn discover_peers(app: AppHandle) -> Result<Vec<crate::sync::Peer>, String> {
-    crate::sync::discover(&app, 1200)
+pub async fn discover_peers(app: AppHandle) -> Result<Vec<crate::sync::Peer>, String> {
+    tauri::async_runtime::spawn_blocking(move || crate::sync::discover(&app, 1200))
+        .await
+        .map_err(err)?
 }
 
-/// Sync with a peer at "ip:port"; returns what changed on this machine.
+/// Sync with a peer at "ip:port"; returns what changed on this machine. Runs on
+/// the blocking pool — a slow or unreachable peer must not freeze the webview.
 #[tauri::command]
-pub fn sync_with_peer(app: AppHandle, addr: String) -> Result<SyncResultDto, String> {
-    let stats = crate::sync::sync_with(&app, &addr)?;
+pub async fn sync_with_peer(app: AppHandle, addr: String) -> Result<SyncResultDto, String> {
+    let stats = tauri::async_runtime::spawn_blocking(move || crate::sync::sync_with(&app, &addr))
+        .await
+        .map_err(err)??;
     Ok(SyncResultDto {
         snippets_added: stats.snippets_added,
         snippets_updated: stats.snippets_updated,

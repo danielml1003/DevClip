@@ -47,3 +47,34 @@ export interface AppSettings {
 }
 
 export type Mode = "clipboard" | "snippets";
+
+// ----- LAN sync ---------------------------------------------------------------
+
+/** This machine's sync identity. */
+export interface SyncInfo {
+  deviceId: string;
+  deviceName: string;
+}
+
+/** A DevClip instance found on the local network during a scan. */
+export interface Peer {
+  deviceId: string;
+  deviceName: string;
+  /** "ip:port" of the peer's sync server. */
+  addr: string;
+}
+
+/** A device we've synced with before (for one-tap re-sync). */
+export interface KnownDevice {
+  deviceId: string;
+  name: string;
+  addr: string;
+  lastSyncedAt: number;
+}
+
+/** What a sync changed on this machine. */
+export interface SyncResult {
+  snippetsAdded: number;
+  snippetsUpdated: number;
+  clipsAdded: number;
+}
