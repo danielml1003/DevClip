@@ -6,7 +6,7 @@ name: Build DevClip (Windows)
 
 on:
   push:
-    branches: [claude/sweet-lovelace-t3l2t0, claude/lan-sync]
+    branches: [devclip-app]
   workflow_dispatch: {}
 
 jobs:
