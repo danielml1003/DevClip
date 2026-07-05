@@ -44,19 +44,28 @@ commands.
 
 ## Download & install
 
-Prebuilt installers for **Windows** and **macOS** are produced by CI on every
-push to `devclip-app`.
+Grab the latest **[Release](https://github.com/danielml1003/DevClip/releases/latest)**
+and download the installer for your OS:
+
+- **Windows** — the `.exe` (or `.msi`)
+- **macOS** — the universal `.dmg` (Apple Silicon + Intel)
+
+Release downloads are **public, permanent links — no GitHub login needed**.
+
+<details>
+<summary>Prefer the bleeding edge? Grab a per-push CI build</summary>
+
+Every push to `devclip-app` also produces installers as build artifacts:
 
 1. Open [**Actions → Build DevClip**](https://github.com/danielml1003/DevClip/actions/workflows/build.yml).
-2. Click the most recent successful run (green ✓).
-3. Under **Artifacts** (bottom of the run page), download the one for your OS:
-   - **Windows** — `devclip-windows-installers` (`.msi` + `.exe`)
-   - **macOS** — `devclip-macos-installer` (universal `.dmg`, Apple Silicon + Intel)
+2. Open the most recent green ✓ run → **Artifacts** → download
+   `devclip-windows-installers` or `devclip-macos-installer`.
 
 > [!NOTE]
-> You must be **signed in to GitHub** to download Actions artifacts, and they
-> expire after ~90 days. The build stamp in DevClip's footer matches the run
-> number, so you can confirm which build you're running.
+> Actions artifacts require being **signed in to GitHub** and expire after
+> ~90 days. Releases have neither limitation.
+
+</details>
 
 These are **unsigned test builds**, so each OS warns on first launch. That's
 expected — here's how to proceed:
