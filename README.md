@@ -42,6 +42,47 @@ commands.
 - 💾 **Local-first** — a single SQLite file. No cloud, no account, no sync.
 - 🪶 **Fast & tiny** — native OS webview (Tauri), ~4.5 KB gzipped UI.
 
+## Download & install
+
+Prebuilt installers for **Windows** and **macOS** are produced by CI on every
+push to `devclip-app`.
+
+1. Open [**Actions → Build DevClip**](https://github.com/danielml1003/DevClip/actions/workflows/build.yml).
+2. Click the most recent successful run (green ✓).
+3. Under **Artifacts** (bottom of the run page), download the one for your OS:
+   - **Windows** — `devclip-windows-installers` (`.msi` + `.exe`)
+   - **macOS** — `devclip-macos-installer` (universal `.dmg`, Apple Silicon + Intel)
+
+> [!NOTE]
+> You must be **signed in to GitHub** to download Actions artifacts, and they
+> expire after ~90 days. The build stamp in DevClip's footer matches the run
+> number, so you can confirm which build you're running.
+
+These are **unsigned test builds**, so each OS warns on first launch. That's
+expected — here's how to proceed:
+
+### Windows
+
+SmartScreen shows *"Windows protected your PC."* Click **More info → Run anyway**,
+then install as normal. Launch DevClip and press **Alt+Space**.
+
+### macOS
+
+Gatekeeper blocks unsigned/un-notarized apps. Open the `.dmg`, drag **DevClip**
+to **Applications**, then either:
+
+- **Right-click** DevClip.app → **Open** → **Open** in the dialog, **or**
+- run `xattr -cr /Applications/DevClip.app` in Terminal.
+
+Then grant **Accessibility** permission (System Settings → Privacy & Security →
+Accessibility → enable DevClip) so the global hotkey and paste work. The hotkey
+is **Option+Space** on macOS.
+
+> [!TIP]
+> Want the warnings gone for everyone? That needs code signing — an Apple
+> Developer account ($99/yr) for macOS and a code-signing certificate for
+> Windows. Not set up for these test builds.
+
 ## How it works
 
 DevClip opens at your mouse cursor (clipped to the active screen) and defaults
