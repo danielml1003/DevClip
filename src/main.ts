@@ -7,6 +7,7 @@ import type {
   Peer,
   SearchResult,
   SyncResult,
+  SyncStatus,
   UnifiedResult,
 } from "./types";
 import "./styles.css";
@@ -89,7 +90,8 @@ function initPalette(): void {
   const searchInput = $<HTMLInputElement>("#search");
   const resultsEl = $<HTMLUListElement>("#results");
   const emptyEl = $<HTMLDivElement>("#empty");
-  const footerEl = $<HTMLDivElement>("#footer");
+  const footerHints = $<HTMLSpanElement>("#footer-hints");
+  const footerBuild = $<HTMLSpanElement>("#footer-build");
   const tabsEl = $<HTMLDivElement>("#mode-tabs");
 
   const saveOverlay = $<HTMLDivElement>("#save-overlay");
@@ -107,6 +109,19 @@ function initPalette(): void {
   const setCancelBtn = $<HTMLButtonElement>("#set-cancel");
   const setBuild = $<HTMLElement>("#set-build");
 
+  // Sync chip (footer) + sync panel + enable warning.
+  const syncChip = $<HTMLButtonElement>("#sync-chip");
+  const syncChipLabel = $<HTMLSpanElement>("#sync-chip-label");
+  const syncOverlay = $<HTMLDivElement>("#sync-overlay");
+  const syncStateLabel = $<HTMLElement>("#sync-state-label");
+  const syncToggleBtn = $<HTMLButtonElement>("#sync-toggle");
+  const syncCloseBtn = $<HTMLButtonElement>("#sync-close");
+  const syncControls = $<HTMLDivElement>("#sync-controls");
+  const syncOffHint = $<HTMLParagraphElement>("#sync-off-hint");
+  const syncWarnOverlay = $<HTMLDivElement>("#sync-warn-overlay");
+  const syncWarnConfirm = $<HTMLButtonElement>("#sync-warn-confirm");
+  const syncWarnCancel = $<HTMLButtonElement>("#sync-warn-cancel");
+
   const setDeviceName = $<HTMLInputElement>("#set-device-name");
   const syncScanBtn = $<HTMLButtonElement>("#sync-scan");
   const syncStatus = $<HTMLSpanElement>("#sync-status");
@@ -122,6 +137,12 @@ function initPalette(): void {
     unified: boolean;
     saving: boolean;
     settingsOpen: boolean;
+    syncPanelOpen: boolean;
+    syncWarnOpen: boolean;
+    /** The user's persisted sync on/off choice. */
+    syncEnabled: boolean;
+    /** Whether the listener sockets are actually bound right now. */
+    syncRunning: boolean;
   }
 
   const state: State = {
@@ -131,6 +152,10 @@ function initPalette(): void {
     unified: false,
     saving: false,
     settingsOpen: false,
+    syncPanelOpen: false,
+    syncWarnOpen: false,
+    syncEnabled: false,
+    syncRunning: false,
   };
 
   let defaultDbPath = "";
@@ -290,7 +315,18 @@ function initPalette(): void {
       state.mode === "clipboard"
         ? `<span><kbd>↵</kbd> paste</span><span><kbd>Tab</kbd> snippets</span><span><kbd>Ctrl</kbd>+<kbd>S</kbd> save</span><span><kbd>Ctrl</kbd>+<kbd>,</kbd> settings</span><span><kbd>Esc</kbd> close</span>`
         : `<span><kbd>↵</kbd> paste</span><span><kbd>Tab</kbd> clipboard</span><span><kbd>Ctrl</kbd>+<kbd>S</kbd> save clipboard</span><span><kbd>Ctrl</kbd>+<kbd>⌫</kbd> delete</span><span><kbd>Ctrl</kbd>+<kbd>,</kbd> settings</span><span><kbd>Esc</kbd> close</span>`;
-    footerEl.innerHTML = `${hints}<span class="build">build ${escapeHtml(__DEVCLIP_BUILD__)}</span>`;
+    // Only the hint/build spans are rewritten; the sync chip is a sibling that
+    // keeps its listeners.
+    footerHints.innerHTML = hints;
+    footerBuild.textContent = `build ${__DEVCLIP_BUILD__}`;
+  }
+
+  /** Reflect the sync on/off state in the footer chip. */
+  function renderSyncChip(): void {
+    const on = state.syncEnabled;
+    syncChip.classList.toggle("on", on);
+    syncChip.classList.toggle("off", !on);
+    syncChipLabel.textContent = on ? "Sync on" : "Sync off";
   }
 
   // ----- Actions -------------------------------------------------------------
@@ -371,7 +407,6 @@ function initPalette(): void {
       setStatus.textContent = String(e);
       setStatus.className = "set-status err";
     }
-    void loadSyncSection();
     setPath.focus();
     setPath.select();
   }
@@ -403,17 +438,100 @@ function initPalette(): void {
     syncStatus.className = "set-status" + (kind ? ` ${kind}` : "");
   }
 
-  /** Load this device's name + saved-device list when settings opens. */
-  async function loadSyncSection(): Promise<void> {
+  function applyStatus(st: SyncStatus): void {
+    state.syncEnabled = st.enabled;
+    state.syncRunning = st.running;
+    renderSyncChip();
+    if (state.syncPanelOpen) renderSyncPanel();
+  }
+
+  /** Fetch the current sync state and reflect it in the chip (called at start). */
+  async function loadSyncStatus(): Promise<void> {
+    try {
+      applyStatus(await api.syncStatus());
+    } catch {
+      // Non-fatal; chip stays "off".
+    }
+  }
+
+  /** Turn sync on/off, surfacing any bind/firewall error in the panel. */
+  async function applySyncEnabled(enabled: boolean): Promise<void> {
+    try {
+      applyStatus(await api.setSyncEnabled(enabled));
+      if (state.syncPanelOpen && enabled) syncMsg("Sync is on.", "ok");
+    } catch (e) {
+      // Enabling can fail (port busy / firewall denied). Reflect reality and
+      // show why — opening the panel if it isn't already visible.
+      state.syncEnabled = false;
+      state.syncRunning = false;
+      renderSyncChip();
+      if (!state.syncPanelOpen) openSyncPanel();
+      renderSyncPanel();
+      syncMsg(String(e), "err");
+    }
+  }
+
+  // ----- Enable warning ------------------------------------------------------
+
+  function openSyncWarn(): void {
+    state.syncWarnOpen = true;
+    syncWarnOverlay.classList.remove("hidden");
+    syncWarnConfirm.focus();
+  }
+
+  function closeSyncWarn(): void {
+    state.syncWarnOpen = false;
+    syncWarnOverlay.classList.add("hidden");
+  }
+
+  async function confirmSyncWarn(): Promise<void> {
+    closeSyncWarn();
+    await applySyncEnabled(true);
+  }
+
+  // ----- Sync panel ----------------------------------------------------------
+
+  /** Left-click the chip: enable (with warning) when off, disable when on. */
+  function onChipToggle(): void {
+    if (state.syncEnabled) {
+      void applySyncEnabled(false);
+    } else {
+      openSyncWarn();
+    }
+  }
+
+  function renderSyncPanel(): void {
+    const on = state.syncEnabled;
+    syncStateLabel.textContent = on ? "On" : "Off";
+    syncStateLabel.className = on ? "on" : "off";
+    syncToggleBtn.textContent = on ? "Disable" : "Enable";
+    syncToggleBtn.classList.toggle("danger", !on);
+    syncControls.classList.toggle("hidden", !on);
+    syncOffHint.classList.toggle("hidden", on);
+  }
+
+  async function openSyncPanel(): Promise<void> {
+    state.syncPanelOpen = true;
     syncPeersEl.innerHTML = "";
     syncMsg("");
+    syncOverlay.classList.remove("hidden");
     try {
-      const info = await api.syncInfo();
-      setDeviceName.value = info.deviceName;
+      const st = await api.syncStatus();
+      state.syncEnabled = st.enabled;
+      state.syncRunning = st.running;
+      setDeviceName.value = st.deviceName;
     } catch {
-      // Non-fatal: leave the field as-is.
+      // Non-fatal.
     }
+    renderSyncChip();
+    renderSyncPanel();
     await renderKnownDevices();
+  }
+
+  function closeSyncPanel(): void {
+    state.syncPanelOpen = false;
+    syncOverlay.classList.add("hidden");
+    searchInput.focus();
   }
 
   function syncResultText(r: SyncResult): string {
@@ -526,6 +644,28 @@ function initPalette(): void {
   // ----- Keyboard ------------------------------------------------------------
 
   function onKeyDown(ev: KeyboardEvent): void {
+    if (state.syncWarnOpen) {
+      if (ev.key === "Escape") {
+        ev.preventDefault();
+        closeSyncWarn();
+      } else if (ev.key === "Enter") {
+        ev.preventDefault();
+        void confirmSyncWarn();
+      }
+      return;
+    }
+
+    if (state.syncPanelOpen) {
+      if (ev.key === "Escape") {
+        ev.preventDefault();
+        closeSyncPanel();
+      } else if (ev.key === "Enter" && ev.target === setDeviceName) {
+        ev.preventDefault();
+        void saveDeviceName();
+      }
+      return;
+    }
+
     if (state.settingsOpen) {
       if (ev.key === "Escape") {
         ev.preventDefault();
@@ -627,20 +767,39 @@ function initPalette(): void {
   syncScanBtn.addEventListener("click", () => void scanForPeers());
   setDeviceName.addEventListener("change", () => void saveDeviceName());
 
+  // Sync chip: left-click toggles (with warning when enabling), right-click
+  // opens the details panel. The title attribute is the hover tooltip.
+  syncChip.addEventListener("click", () => onChipToggle());
+  syncChip.addEventListener("contextmenu", (ev) => {
+    ev.preventDefault();
+    void openSyncPanel();
+  });
+  syncToggleBtn.addEventListener("click", () => onChipToggle());
+  syncCloseBtn.addEventListener("click", () => closeSyncPanel());
+  syncWarnConfirm.addEventListener("click", () => void confirmSyncWarn());
+  syncWarnCancel.addEventListener("click", () => closeSyncWarn());
+
   // When the backend reveals the window, reset to the default (clipboard) view.
   void api.onShow(() => {
+    if (state.syncWarnOpen) closeSyncWarn();
+    if (state.syncPanelOpen) closeSyncPanel();
     if (state.settingsOpen) closeSettings();
     state.mode = "clipboard";
     searchInput.value = "";
     searchInput.focus();
     void runSearch();
+    void loadSyncStatus();
   });
 
   window.addEventListener("focus", () => {
-    if (!state.saving && !state.settingsOpen) searchInput.focus();
+    if (!state.saving && !state.settingsOpen && !state.syncPanelOpen && !state.syncWarnOpen) {
+      searchInput.focus();
+    }
   });
 
   searchInput.focus();
+  renderSyncChip();
+  void loadSyncStatus();
   void runSearch();
 }
 

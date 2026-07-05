@@ -50,10 +50,14 @@ export type Mode = "clipboard" | "snippets";
 
 // ----- LAN sync ---------------------------------------------------------------
 
-/** This machine's sync identity. */
-export interface SyncInfo {
+/** This machine's sync identity and current on/off state. */
+export interface SyncStatus {
   deviceId: string;
   deviceName: string;
+  /** The user's persisted choice. */
+  enabled: boolean;
+  /** Whether the listener sockets are actually bound right now. */
+  running: boolean;
 }
 
 /** A DevClip instance found on the local network during a scan. */

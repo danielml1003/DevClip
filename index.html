@@ -29,7 +29,18 @@
 
       <div id="empty" class="empty hidden"></div>
 
-      <footer class="footer" id="footer"></footer>
+      <footer class="footer" id="footer">
+        <span id="footer-hints" class="footer-hints"></span>
+        <span class="build" id="footer-build"></span>
+        <button
+          id="sync-chip"
+          class="sync-chip off"
+          type="button"
+          title="Right-click for sync details"
+        >
+          <span class="sync-dot"></span><span id="sync-chip-label">Sync off</span>
+        </button>
+      </footer>
     </div>
 
     <!-- Settings (in-app panel within the main window) -->
@@ -55,27 +66,7 @@
           <input id="set-cap" type="number" min="1" max="100000" step="1" />
         </section>
 
-        <section class="set-group">
-          <label for="set-device-name">LAN sync</label>
-          <p class="set-help">
-            Sync snippets and clipboard history with another DevClip on the same
-            Wi-Fi or local network — no cloud, no account. Open DevClip on both
-            machines, scan, then sync. Newer edits win; nothing is deleted.
-          </p>
-          <p class="set-help dim">This device's name (what other machines see):</p>
-          <input id="set-device-name" type="text" spellcheck="false" />
-
-          <div class="sync-bar">
-            <button id="sync-scan" class="ghost">Scan for devices</button>
-            <span id="sync-status" class="set-status"></span>
-          </div>
-          <ul id="sync-peers" class="sync-list"></ul>
-
-          <div id="sync-known-wrap" class="hidden">
-            <p class="set-help dim">Saved devices</p>
-            <ul id="sync-known" class="sync-list"></ul>
-          </div>
-        </section>
+        <p class="set-help dim">LAN sync lives in the <strong>Sync</strong> button at the bottom-right (right-click it for details).</p>
 
         <div id="set-status" class="set-status"></div>
 
@@ -100,6 +91,74 @@
         <div class="save-actions">
           <span class="hint"><kbd>Enter</kbd> save · <kbd>Esc</kbd> cancel</span>
           <button id="save-confirm" class="primary">Save</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- LAN sync panel (opened by right-clicking the sync chip) -->
+    <div id="sync-overlay" class="overlay hidden">
+      <div class="settings-card">
+        <h2>LAN Sync</h2>
+
+        <div class="sync-state-row">
+          <span>Status: <strong id="sync-state-label">Off</strong></span>
+          <button id="sync-toggle" class="primary">Enable</button>
+        </div>
+
+        <div id="sync-status" class="set-status"></div>
+
+        <section class="set-group">
+          <label for="set-device-name">This device's name</label>
+          <p class="set-help dim">What other machines see when they find you.</p>
+          <input id="set-device-name" type="text" spellcheck="false" />
+        </section>
+
+        <div id="sync-controls">
+          <div class="sync-bar">
+            <button id="sync-scan" class="ghost">Scan for devices</button>
+          </div>
+          <ul id="sync-peers" class="sync-list"></ul>
+
+          <div id="sync-known-wrap" class="hidden">
+            <p class="set-help dim">Saved devices</p>
+            <ul id="sync-known" class="sync-list"></ul>
+          </div>
+        </div>
+
+        <p id="sync-off-hint" class="set-help dim">
+          Sync is off. Turn it on to discover and sync snippets + clipboard
+          history with other DevClip machines on your network.
+        </p>
+
+        <div class="set-actions">
+          <span class="hint"><kbd>Esc</kbd> close</span>
+          <button id="sync-close" class="ghost">Close</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Enable-sync warning -->
+    <div id="sync-warn-overlay" class="overlay hidden">
+      <div class="save-card">
+        <h2>Enable LAN sync?</h2>
+        <p class="set-help">
+          This starts a local network service on this device so you can sync with
+          other DevClip machines. Before you turn it on:
+        </p>
+        <ul class="warn-list">
+          <li>Your device becomes <strong>discoverable</strong> to anything on
+            your local network (Wi-Fi / LAN).</li>
+          <li>While sync is on, <strong>any DevClip on your network can connect
+            and receive all your snippets and your entire clipboard history</strong>
+            — which may include passwords, tokens and other secrets. There is no
+            per-device approval.</li>
+          <li>Only enable this on networks you trust, and turn it off when
+            you're done.</li>
+        </ul>
+        <div class="save-actions">
+          <span class="hint"><kbd>Esc</kbd> cancel</span>
+          <button id="sync-warn-cancel" class="ghost">Cancel</button>
+          <button id="sync-warn-confirm" class="primary danger">Enable sync</button>
         </div>
       </div>
     </div>

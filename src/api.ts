@@ -13,8 +13,8 @@ import type {
   Peer,
   SearchResult,
   Snippet,
-  SyncInfo,
   SyncResult,
+  SyncStatus,
   UnifiedResult,
 } from "./types";
 
@@ -113,13 +113,20 @@ export const api = {
 
   // ----- LAN sync ------------------------------------------------------------
 
-  /** This machine's sync identity (id + friendly name). */
-  syncInfo(): Promise<SyncInfo> {
-    return isTauri ? invoke("sync_info") : mock.syncInfo();
+  /** This machine's sync identity + on/off state. */
+  syncStatus(): Promise<SyncStatus> {
+    return isTauri ? invoke("sync_status") : mock.syncStatus();
+  },
+
+  /** Turn LAN sync on or off (turning on binds the network sockets). */
+  setSyncEnabled(enabled: boolean): Promise<SyncStatus> {
+    return isTauri
+      ? invoke("set_sync_enabled", { enabled })
+      : mock.setSyncEnabled(enabled);
   },
 
   /** Rename this machine (the name peers see). */
-  setDeviceName(name: string): Promise<SyncInfo> {
+  setDeviceName(name: string): Promise<SyncStatus> {
     return isTauri ? invoke("set_device_name", { name }) : mock.setDeviceName(name);
   },
 
@@ -172,6 +179,7 @@ const mock = (() => {
   };
   let deviceName = "This PC (mock)";
   let knownDevices: KnownDevice[] = [];
+  let syncEnabled = false;
 
   function s(
     id: number,
@@ -370,12 +378,16 @@ const mock = (() => {
     async onShow(_handler: () => void): Promise<() => void> {
       return () => {};
     },
-    async syncInfo(): Promise<SyncInfo> {
-      return { deviceId: "mock-device", deviceName };
+    async syncStatus(): Promise<SyncStatus> {
+      return { deviceId: "mock-device", deviceName, enabled: syncEnabled, running: syncEnabled };
     },
-    async setDeviceName(name: string): Promise<SyncInfo> {
+    async setSyncEnabled(enabled: boolean): Promise<SyncStatus> {
+      syncEnabled = enabled;
+      return { deviceId: "mock-device", deviceName, enabled: syncEnabled, running: syncEnabled };
+    },
+    async setDeviceName(name: string): Promise<SyncStatus> {
       deviceName = name.trim() || deviceName;
-      return { deviceId: "mock-device", deviceName };
+      return { deviceId: "mock-device", deviceName, enabled: syncEnabled, running: syncEnabled };
     },
     async discoverPeers(): Promise<Peer[]> {
       // Pretend a scan took a moment and found one peer.

@@ -15,6 +15,8 @@
 
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream, ToSocketAddrs, UdpSocket};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use devclip_core::{ClipboardEntry, MergeStats, Snippet};
@@ -189,29 +191,79 @@ fn read_frame(stream: &mut TcpStream) -> std::io::Result<Vec<u8>> {
     Ok(buf)
 }
 
-// ----- Listeners (started once at app launch) --------------------------------
+// ----- Runtime controller ----------------------------------------------------
 
-/// Start the UDP discovery responder and the TCP sync server. Failures to bind
-/// (e.g. another instance already running on this machine) are logged and
-/// sync is simply unavailable — they never crash the app.
-pub fn start(app: AppHandle) {
-    start_discovery_responder(app.clone());
-    start_sync_server(app);
+/// How often the listeners wake to check whether they've been stopped.
+const LISTEN_POLL: Duration = Duration::from_millis(250);
+
+/// Controls the LAN sync listeners at runtime.
+///
+/// The listeners are the only thing that `bind()` a socket — and binding is what
+/// triggers the OS firewall prompt. So they are NOT started at launch; they
+/// start only when the user turns sync ON (which is also when it's honest for
+/// the firewall dialog to appear), and stop cleanly when it's turned OFF.
+#[derive(Default)]
+pub struct SyncController {
+    /// `Some(flag)` while running. Setting the flag to `false` tells the
+    /// listener threads to close their sockets and exit.
+    stop: Mutex<Option<Arc<AtomicBool>>>,
 }
 
-/// Listen for discovery broadcasts and reply with our identity.
-fn start_discovery_responder(app: AppHandle) {
-    std::thread::spawn(move || {
-        let socket = match UdpSocket::bind(("0.0.0.0", DISCOVERY_PORT)) {
-            Ok(s) => s,
-            Err(e) => {
-                eprintln!("devclip sync: discovery responder unavailable: {e}");
-                return;
+impl SyncController {
+    pub fn new() -> Self {
+        SyncController {
+            stop: Mutex::new(None),
+        }
+    }
+
+    /// Whether the listeners are currently running (sockets bound).
+    pub fn is_running(&self) -> bool {
+        self.stop
+            .lock()
+            .map(|g| g.is_some())
+            .unwrap_or(false)
+    }
+
+    /// Start the discovery responder + sync server if not already running.
+    /// Binds up-front so a real error (e.g. port in use) is surfaced to the UI,
+    /// and so the firewall prompt is tied to the user's explicit action.
+    pub fn start(&self, app: AppHandle) -> Result<(), String> {
+        let mut guard = self.stop.lock().map_err(|e| e.to_string())?;
+        if guard.is_some() {
+            return Ok(()); // already running
+        }
+        let disco = UdpSocket::bind(("0.0.0.0", DISCOVERY_PORT))
+            .map_err(|e| format!("could not start discovery (UDP {DISCOVERY_PORT}): {e}"))?;
+        let server = TcpListener::bind(("0.0.0.0", SYNC_PORT))
+            .map_err(|e| format!("could not start sync server (TCP {SYNC_PORT}): {e}"))?;
+        let _ = disco.set_broadcast(true);
+        let _ = disco.set_read_timeout(Some(LISTEN_POLL));
+        let _ = server.set_nonblocking(true);
+
+        let flag = Arc::new(AtomicBool::new(true));
+        run_discovery_responder(app.clone(), disco, flag.clone());
+        run_sync_server(app, server, flag.clone());
+        *guard = Some(flag);
+        Ok(())
+    }
+
+    /// Stop the listeners if running. Sockets close as the threads notice the
+    /// flag (within one `LISTEN_POLL`).
+    pub fn stop(&self) {
+        if let Ok(mut guard) = self.stop.lock() {
+            if let Some(flag) = guard.take() {
+                flag.store(false, Ordering::SeqCst);
             }
-        };
-        let _ = socket.set_broadcast(true);
+        }
+    }
+}
+
+/// Reply to discovery broadcasts with our identity, until stopped.
+fn run_discovery_responder(app: AppHandle, socket: UdpSocket, stop: Arc<AtomicBool>) {
+    std::thread::spawn(move || {
         let mut buf = [0u8; 2048];
-        loop {
+        while stop.load(Ordering::SeqCst) {
+            // Read timeout means recv_from returns periodically so we re-check `stop`.
             let (n, from) = match socket.recv_from(&mut buf) {
                 Ok(v) => v,
                 Err(_) => continue,
@@ -246,25 +298,28 @@ fn start_discovery_responder(app: AppHandle) {
     });
 }
 
-/// Accept incoming sync connections: receive the peer's payload, merge it, and
-/// send our own snapshot back so both sides converge.
-fn start_sync_server(app: AppHandle) {
+/// Accept incoming sync connections and merge/exchange, until stopped.
+fn run_sync_server(app: AppHandle, listener: TcpListener, stop: Arc<AtomicBool>) {
     std::thread::spawn(move || {
-        let listener = match TcpListener::bind(("0.0.0.0", SYNC_PORT)) {
-            Ok(l) => l,
-            Err(e) => {
-                eprintln!("devclip sync: sync server unavailable: {e}");
-                return;
-            }
-        };
-        for incoming in listener.incoming() {
-            let Ok(mut stream) = incoming else { continue };
-            let app = app.clone();
-            std::thread::spawn(move || {
-                if let Err(e) = handle_incoming_sync(&app, &mut stream) {
-                    eprintln!("devclip sync: incoming sync failed: {e}");
+        while stop.load(Ordering::SeqCst) {
+            match listener.accept() {
+                Ok((mut stream, _)) => {
+                    let app = app.clone();
+                    std::thread::spawn(move || {
+                        // The accepted socket may inherit non-blocking mode from
+                        // the listener on some platforms; force blocking so the
+                        // read-timeout handshake works.
+                        let _ = stream.set_nonblocking(false);
+                        if let Err(e) = handle_incoming_sync(&app, &mut stream) {
+                            eprintln!("devclip sync: incoming sync failed: {e}");
+                        }
+                    });
                 }
-            });
+                Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    std::thread::sleep(LISTEN_POLL);
+                }
+                Err(_) => std::thread::sleep(LISTEN_POLL),
+            }
         }
     });
 }

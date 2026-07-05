@@ -37,6 +37,11 @@ pub struct Settings {
     /// Devices previously synced with, for one-tap re-sync.
     #[serde(default)]
     pub known_devices: Vec<KnownDevice>,
+    /// Whether LAN sync is enabled. OFF by default so a fresh install never
+    /// binds a network socket (and never triggers the OS firewall prompt) until
+    /// the user explicitly opts in.
+    #[serde(default)]
+    pub sync_enabled: bool,
 }
 
 /// Best-effort hostname for a friendly default device name.
@@ -57,6 +62,7 @@ impl Settings {
             device_id: devclip_core::new_sync_id(),
             device_name: default_device_name(),
             known_devices: Vec::new(),
+            sync_enabled: false,
         }
     }
 

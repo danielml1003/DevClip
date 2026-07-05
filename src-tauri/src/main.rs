@@ -53,6 +53,7 @@ fn main() {
             if changed {
                 let _ = settings.save(&config_path);
             }
+            let sync_enabled = settings.sync_enabled;
             if let Some(parent) = settings.db_path.parent() {
                 std::fs::create_dir_all(parent).ok();
             }
@@ -65,6 +66,7 @@ fn main() {
                 config_path,
                 default_db_path,
                 last_self_write: Mutex::new(None),
+                sync_ctl: sync::SyncController::new(),
                 #[cfg(windows)]
                 prev_hwnd: std::sync::atomic::AtomicIsize::new(0),
             });
@@ -75,9 +77,16 @@ fn main() {
             app.global_shortcut().register(shortcut)?;
 
             start_clipboard_monitor(app.handle().clone());
-            // LAN sync discovery responder + sync server (best-effort; never
-            // fatal if a port is busy).
-            sync::start(app.handle().clone());
+            // Only bind sync sockets at launch if the user previously turned
+            // sync ON. A fresh install leaves it off, so nothing binds and the
+            // OS firewall prompt never appears until the user opts in.
+            if sync_enabled {
+                if let Some(state) = app.try_state::<AppState>() {
+                    if let Err(e) = state.sync_ctl.start(app.handle().clone()) {
+                        eprintln!("devclip sync: could not auto-start: {e}");
+                    }
+                }
+            }
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -99,7 +108,8 @@ fn main() {
             commands::paste,
             commands::get_settings,
             commands::set_settings,
-            commands::sync_info,
+            commands::sync_status,
+            commands::set_sync_enabled,
             commands::set_device_name,
             commands::discover_peers,
             commands::sync_with_peer,

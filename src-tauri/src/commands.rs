@@ -25,6 +25,9 @@ pub struct AppState {
     /// with a timestamp. The clipboard monitor uses this to recognise its own
     /// output and avoid re-recording it as a new "copy" (the paste loop).
     pub last_self_write: Mutex<Option<(String, Instant)>>,
+    /// Runtime control for the LAN sync listeners (start/stop on demand so we
+    /// only bind sockets — and trigger the firewall prompt — when enabled).
+    pub sync_ctl: crate::sync::SyncController,
     /// Handle of the window that was focused before the palette appeared, so we
     /// can restore focus to it and paste reliably. Windows only.
     #[cfg(windows)]
@@ -259,9 +262,13 @@ pub fn set_settings(
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct SyncInfoDto {
+pub struct SyncStatusDto {
     pub device_id: String,
     pub device_name: String,
+    /// The user's persisted choice.
+    pub enabled: bool,
+    /// Whether the listener sockets are actually bound right now.
+    pub running: bool,
 }
 
 #[derive(Serialize)]
@@ -281,30 +288,62 @@ pub struct SyncResultDto {
     pub clips_added: usize,
 }
 
-/// This machine's sync identity and friendly name.
-#[tauri::command]
-pub fn sync_info(state: State<AppState>) -> Result<SyncInfoDto, String> {
-    let s = state.settings.lock().map_err(err)?;
-    Ok(SyncInfoDto {
-        device_id: s.device_id.clone(),
-        device_name: s.device_name.clone(),
+fn sync_status_dto(state: &AppState) -> Result<SyncStatusDto, String> {
+    let (device_id, device_name, enabled) = {
+        let s = state.settings.lock().map_err(err)?;
+        (s.device_id.clone(), s.device_name.clone(), s.sync_enabled)
+    };
+    Ok(SyncStatusDto {
+        device_id,
+        device_name,
+        enabled,
+        running: state.sync_ctl.is_running(),
     })
+}
+
+/// This machine's sync identity, on/off choice, and whether it's actually running.
+#[tauri::command]
+pub fn sync_status(state: State<AppState>) -> Result<SyncStatusDto, String> {
+    sync_status_dto(&state)
+}
+
+/// Turn LAN sync on or off. Persists the choice and starts/stops the listeners
+/// accordingly. Turning it on is what first binds the network sockets (and
+/// triggers the OS firewall prompt) — never at launch for a fresh install.
+#[tauri::command]
+pub fn set_sync_enabled(
+    app: AppHandle,
+    state: State<AppState>,
+    enabled: bool,
+) -> Result<SyncStatusDto, String> {
+    if enabled {
+        // Start first; only persist "on" if the sockets actually bound.
+        state.sync_ctl.start(app).map_err(err)?;
+        let mut s = state.settings.lock().map_err(err)?;
+        s.sync_enabled = true;
+        s.save(&state.config_path).map_err(err)?;
+    } else {
+        state.sync_ctl.stop();
+        let mut s = state.settings.lock().map_err(err)?;
+        s.sync_enabled = false;
+        s.save(&state.config_path).map_err(err)?;
+    }
+    sync_status_dto(&state)
 }
 
 /// Rename this machine (the name peers see). Persists immediately.
 #[tauri::command]
-pub fn set_device_name(state: State<AppState>, name: String) -> Result<SyncInfoDto, String> {
-    let name = name.trim();
-    if name.is_empty() {
+pub fn set_device_name(state: State<AppState>, name: String) -> Result<SyncStatusDto, String> {
+    let trimmed = name.trim();
+    if trimmed.is_empty() {
         return Err("Device name cannot be empty".into());
     }
-    let mut s = state.settings.lock().map_err(err)?;
-    s.device_name = name.to_string();
-    s.save(&state.config_path).map_err(err)?;
-    Ok(SyncInfoDto {
-        device_id: s.device_id.clone(),
-        device_name: s.device_name.clone(),
-    })
+    {
+        let mut s = state.settings.lock().map_err(err)?;
+        s.device_name = trimmed.to_string();
+        s.save(&state.config_path).map_err(err)?;
+    }
+    sync_status_dto(&state)
 }
 
 /// Scan the local network for other DevClip instances (~1.2s). Runs on the
