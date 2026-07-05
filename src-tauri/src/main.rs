@@ -140,7 +140,7 @@ fn toggle_window(app: &AppHandle) {
 /// Place the palette before showing it; returns the position it set (if any).
 ///
 /// On Windows: remember the focused app (for paste-back) and open centered on
-/// the active app's monitor. On other platforms: open at the mouse cursor.
+/// the active app window. On other platforms: open at the mouse cursor.
 fn position_window(app: &AppHandle, win: &WebviewWindow) -> Option<PhysicalPosition<i32>> {
     #[cfg(windows)]
     {
@@ -149,7 +149,7 @@ fn position_window(app: &AppHandle, win: &WebviewWindow) -> Option<PhysicalPosit
         }
         // Logical window size from tauri.conf.json; winpos scales it to the
         // active monitor's DPI internally.
-        match winpos::active_screen_origin((720, 480)) {
+        match winpos::active_window_origin((720, 480)) {
             // Safety net: only trust the point if it lands on a real monitor in
             // Tauri's own coordinate space (the space set_position uses).
             Some((x, y)) if point_on_a_monitor(win, x, y) => {
