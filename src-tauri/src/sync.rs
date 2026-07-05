@@ -1,7 +1,7 @@
 //! LAN sync: discover other DevClip instances on the local network and
 //! exchange snippets + clipboard history directly, machine-to-machine.
 //!
-//! No cloud, no account, no extra apps — like LocalSend. Two transports:
+//! No cloud, no account, no extra apps. Two transports:
 //!
 //! * **UDP broadcast** (port [`DISCOVERY_PORT`]) for discovery: a scanning
 //!   instance broadcasts a "who's there?" datagram; every other instance
