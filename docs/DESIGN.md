@@ -32,7 +32,7 @@ unit-tested.** The desktop shell is deliberately thin.
 └───────────────────────────┬──────────────────────────────┘
                             │ plain function calls
 ┌───────────────────────────▼──────────────────────────────┐
-│  devclip-core  (pure Rust, no Tauri/webkit, 23 unit tests) │
+│  devclip-core  (pure Rust, no Tauri/webkit, 37 unit tests) │
 │  • model     — Snippet, ClipboardEntry, ScoredSnippet      │
 │  • fuzzy     — hand-written scoring matcher                 │
 │  • search    — ranking: fuzzy × field-weight + recency/freq │
@@ -50,19 +50,22 @@ layer is just plumbing.
 
 | Snippet field  | Type            | Notes                                  |
 |----------------|-----------------|----------------------------------------|
-| `id`           | INTEGER PK      | autoincrement                          |
+| `id`           | INTEGER PK      | autoincrement; local, not stable across machines |
 | `name`         | TEXT            | friendly name                          |
 | `content`      | TEXT            | the actual snippet                     |
 | `created_at`   | INTEGER (unix)  | set on insert                          |
 | `last_used_at` | INTEGER \| NULL | stamped on paste — drives recency      |
 | `use_count`    | INTEGER         | incremented on paste — drives freq     |
+| `sync_id`      | TEXT (UUID)     | stable cross-machine id (schema v2) — LAN sync matches on this |
+| `updated_at`   | INTEGER (unix)  | last name/content edit (schema v2) — drives last-write-wins on sync |
 
-Clipboard history (`clipboard_history`) is separate and transient: capped at
-100 entries, consecutive-duplicate and empty captures skipped. It is **never**
-the permanent store (Principle 4).
+Clipboard history (`clipboard_history`) is separate and transient: capped
+(default 100 entries), consecutive-duplicate and empty captures skipped. It is
+**never** the permanent store (Principle 4).
 
-The schema is versioned with `PRAGMA user_version`, so future features
-(variables, expiration, sync metadata) migrate cleanly.
+The schema is versioned with `PRAGMA user_version`: v2 added the `sync_id` /
+`updated_at` columns above (with a backfill migration for existing rows), and
+future features (variables, expiration) migrate the same way.
 
 ### Search & ranking (the heart)
 
@@ -142,10 +145,11 @@ snippets and rank in memory on every keystroke — comfortably sub-millisecond.
 |--------|--------|-----|
 | Shell | **Tauri v2** | Native OS webview (no bundled Chromium) → tens-of-ms cold start and a few-MB binary. Directly serves the "fast startup / Raycast feel" goal; Electron would fight it. |
 | Core logic | **Rust** | Fast fuzzy search, safe SQLite, native global-shortcut/clipboard/keystroke access. |
-| UI | **Vanilla TypeScript + Vite** | The UI is one command-palette surface; a framework adds bundle + parse cost for no benefit. Bundle is ~4.5 KB gzipped → instant first paint. |
+| UI | **Vanilla TypeScript + Vite** | The UI is one command-palette surface; a framework adds bundle + parse cost for no benefit. The bundle stays tiny → instant first paint. |
 | Storage | **SQLite via `rusqlite` (bundled)** | Local-first, single file, zero external dependency, no server/account. |
 | Search | **Custom Rust matcher** | Full control over ranking quality; no opaque dependency. |
-| Paste | **`enigo`** | Cross-platform synthetic keystrokes. |
+| Paste | **Win32 `SendInput` (Windows) · `enigo` (macOS/Linux)** | Restore focus to the prior app, then inject the paste keystroke. The Windows path also works around the foreground lock so the first paste is reliable. |
+| LAN sync | **Rust std `net` + `serde_json`** | UDP discovery + a small length-prefixed TCP exchange; no server, no extra runtime dependency. |
 
 Trade-off considered: a faster ship would be Electron + Fuse.js, but it
 contradicts the explicit *fast startup* and *Raycast-like* goals. Tauri is the
@@ -163,22 +167,27 @@ right call for a tool that must feel instant.
 | **P3** | Command-palette UI: search, keyboard nav, highlighting | ✅ done, builds |
 | **P4** | Clipboard monitoring + history + Save (promote) flow | ✅ done |
 | **P5** | Paste-into-focused-app + use tracking | ✅ done |
-| **P6** | Polish: configurable hotkey, settings, tray, packaging/signing | ⏳ V1.x |
+| **P6** | In-app settings panel; active-window positioning (Windows) | ✅ done |
+| **P7** | Packaging + CI installers (Windows & macOS) → GitHub Releases | ✅ done |
+| **P8** | Optional LAN sync — discovery + snippet/clipboard transfer, opt-in | ✅ done, tested |
+| **P9** | Configurable hotkey, code-signed installers, tray | ⏳ planned |
 
-### Explicitly out of scope for V1 (designed-for, not built)
+### Still designed-for, not yet built
 
-Snippet variables, expiration dates, cross-machine sync, AI naming/search,
-team sharing. The schema's `meta`/versioning and the core/shell split leave
-room for all of these without a rewrite.
+Snippet variables, expiration dates, AI naming/search, and team sharing remain
+unbuilt. (Cross-machine sync shipped as opt-in LAN sync in P8.) The schema
+versioning and the core/shell split leave room for the rest without a rewrite.
 
 ---
 
 ## 6. Verification
 
-- `cargo test --workspace` → **23 passing** unit tests covering the fuzzy
-  matcher, ranking, and SQLite store (including the spec's headline cases:
-  `mig` → "Production migration command", `docker compose`, `prod` prefers
-  titles).
+- `cargo test --workspace` → **37 passing** unit tests covering the fuzzy
+  matcher, ranking, the SQLite store, and the LAN-sync merge (last-write-wins
+  plus monotonic usage stats) — including the spec's headline cases: `mig` →
+  "Production migration command", `docker compose`, `prod` prefers titles.
 - `npm run build` → TypeScript (strict) + Vite production build, clean.
 - `cargo build -p devclip-tauri` → the desktop binary links (requires the
   platform webview libs; see README).
+- CI builds installers for **Windows and macOS** on every push; a `v*` tag
+  publishes them to GitHub Releases.
