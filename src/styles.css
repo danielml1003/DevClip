@@ -479,6 +479,7 @@ button.ghost:disabled {
   align-items: center;
 }
 .sync-chip {
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -496,6 +497,30 @@ button.ghost:disabled {
 .sync-chip:hover {
   border-color: var(--accent);
   color: var(--text);
+}
+
+/* Hover popover above the chip (replaces the native tooltip) */
+.sync-tip {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  right: 0;
+  background: rgba(10, 12, 16, 0.72);
+  backdrop-filter: blur(6px);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 5px 9px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  white-space: nowrap;
+  opacity: 0;
+  transform: translateY(3px);
+  pointer-events: none;
+  transition: opacity 0.12s ease, transform 0.12s ease;
+}
+.sync-chip:hover .sync-tip {
+  opacity: 1;
+  transform: translateY(0);
 }
 .sync-dot {
   width: 7px;
