@@ -44,53 +44,39 @@ commands.
 
 ## Download & install
 
-Grab the latest **[Release](https://github.com/danielml1003/DevClip/releases/latest)**
-and download the installer for your OS:
+**[Download the latest release](https://github.com/danielml1003/DevClip/releases/latest)** and choose the installer for your platform:
 
-- **Windows** — the `.exe` (or `.msi`)
-- **macOS** — the universal `.dmg` (Apple Silicon + Intel)
+- **Windows** — `.exe` installer (or `.msi`)
+- **macOS** — universal `.dmg` (Apple Silicon and Intel)
 
-Release downloads are **public, permanent links — no GitHub login needed**.
+Release assets are public, permanent downloads and require no GitHub account.
 
 <details>
-<summary>Prefer the bleeding edge? Grab a per-push CI build</summary>
+<summary>Development builds (per-push CI artifacts)</summary>
 
-Every push to `devclip-app` also produces installers as build artifacts:
-
-1. Open [**Actions → Build DevClip**](https://github.com/danielml1003/DevClip/actions/workflows/build.yml).
-2. Open the most recent green ✓ run → **Artifacts** → download
-   `devclip-windows-installers` or `devclip-macos-installer`.
-
-> [!NOTE]
-> Actions artifacts require being **signed in to GitHub** and expire after
-> ~90 days. Releases have neither limitation.
+Every push to `devclip-app` publishes installers as workflow artifacts under
+[Actions → Build DevClip](https://github.com/danielml1003/DevClip/actions/workflows/build.yml).
+Open the most recent successful run and download `devclip-windows-installers` or
+`devclip-macos-installer`. Artifacts require a GitHub sign-in and are retained
+for roughly 90 days; releases have neither limitation.
 
 </details>
 
-These are **unsigned test builds**, so each OS warns on first launch. That's
-expected — here's how to proceed:
+### First launch
 
-### Windows
+These builds are not code-signed, so each operating system shows a one-time
+warning. (Removing it requires code signing — an Apple Developer account for
+macOS and a certificate for Windows — which is not configured for these builds.)
 
-SmartScreen shows *"Windows protected your PC."* Click **More info → Run anyway**,
-then install as normal. Launch DevClip and press **Alt+Space**.
+**Windows.** SmartScreen displays *"Windows protected your PC."* Select
+**More info → Run anyway** and complete the installer. Launch DevClip and press
+**Alt + Space**.
 
-### macOS
-
-Gatekeeper blocks unsigned/un-notarized apps. Open the `.dmg`, drag **DevClip**
-to **Applications**, then either:
-
-- **Right-click** DevClip.app → **Open** → **Open** in the dialog, **or**
-- run `xattr -cr /Applications/DevClip.app` in Terminal.
-
-Then grant **Accessibility** permission (System Settings → Privacy & Security →
-Accessibility → enable DevClip) so the global hotkey and paste work. The hotkey
-is **Option+Space** on macOS.
-
-> [!TIP]
-> Want the warnings gone for everyone? That needs code signing — an Apple
-> Developer account ($99/yr) for macOS and a code-signing certificate for
-> Windows. Not set up for these test builds.
+**macOS.** Gatekeeper blocks unsigned applications. Open the `.dmg`, drag
+**DevClip** into **Applications**, then right-click the app and choose **Open**
+(or run `xattr -cr /Applications/DevClip.app`). Grant Accessibility permission
+under **System Settings → Privacy & Security → Accessibility** so the global
+hotkey and paste work. The hotkey on macOS is **Option + Space**.
 
 ## How it works
 
