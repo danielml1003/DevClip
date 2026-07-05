@@ -12,10 +12,21 @@ name: Release DevClip
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version tag to create & release (e.g. v0.1.0)"
+        required: true
+        type: string
 
-# The release job needs to create a Release and upload assets.
+# The release job needs to create a Release (and the tag, when dispatched
+# manually) and upload assets.
 permissions:
   contents: write
+
+# The tag comes from the pushed ref, or from the manual input when dispatched.
+env:
+  RELEASE_TAG: ${{ github.event.inputs.version || github.ref_name }}
 
 jobs:
   build-windows:
@@ -46,7 +57,7 @@ jobs:
         run: npm run tauri build
         env:
           # Stamp the release version into the UI footer.
-          DEVCLIP_BUILD: ${{ github.ref_name }}
+          DEVCLIP_BUILD: ${{ env.RELEASE_TAG }}
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
@@ -83,7 +94,7 @@ jobs:
       - name: Build DevClip (universal macOS .dmg)
         run: npm run tauri build -- --target universal-apple-darwin
         env:
-          DEVCLIP_BUILD: ${{ github.ref_name }}
+          DEVCLIP_BUILD: ${{ env.RELEASE_TAG }}
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
@@ -104,7 +115,11 @@ jobs:
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          name: DevClip ${{ github.ref_name }}
+          # Creates the tag at this commit if it doesn't already exist (the
+          # manual-dispatch path); reuses the pushed tag otherwise.
+          tag_name: ${{ env.RELEASE_TAG }}
+          target_commitish: ${{ github.sha }}
+          name: DevClip ${{ env.RELEASE_TAG }}
           generate_release_notes: true
           append_body: true
           body: |
