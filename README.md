@@ -39,8 +39,11 @@ commands.
   use each snippet, so your muscle-memory commands float to the top.
 - 📋 **Clipboard history** as the on-ramp — copy normally, then **explicitly**
   promote the good stuff to a permanent, named snippet (`Ctrl+S`).
-- 💾 **Local-first** — a single SQLite file. No cloud, no account, no sync.
-- 🪶 **Fast & tiny** — native OS webview (Tauri), ~4.5 KB gzipped UI.
+- 💾 **Local-first** — a single SQLite file. No cloud or account required.
+- 🔗 **Optional LAN sync** — off by default; when enabled, sync snippets and
+  clipboard history directly with another machine on your network. No server,
+  no account.
+- 🪶 **Fast & tiny** — a native OS webview (Tauri), not Electron.
 
 ## Download & install
 
@@ -80,8 +83,8 @@ hotkey and paste work. The hotkey on macOS is **Option + Space**.
 
 ## How it works
 
-DevClip opens at your mouse cursor (clipped to the active screen) and defaults
-to the **Clipboard** view.
+DevClip opens centered on the window you're working in (on Windows; at the
+mouse cursor on macOS and Linux) and defaults to the **Clipboard** view.
 
 ### Save
 1. Copy text normally (`Ctrl+C`).
@@ -98,7 +101,7 @@ to the **Clipboard** view.
 
 | Key | Action |
 |-----|--------|
-| `Alt+Space` | Show / hide DevClip (global), at the cursor |
+| `Alt+Space` | Show / hide DevClip (global hotkey) |
 | type | Fuzzy search (clipboard + snippets on the default view) |
 | `↑` / `↓` | Move selection |
 | `Enter` | Paste selected into the previously focused app |
@@ -109,9 +112,17 @@ to the **Clipboard** view.
 | `Esc` | Clear the query, then hide |
 
 ### Settings (`Ctrl+,`)
-A separate window to view/change the **data storage file path** and the
+An in-app panel to view/change the **data storage file path** and the
 **clipboard history limit**. Changing the path switches to the database at the
 new location (existing data is copied over if nothing is there yet).
+
+### Sync (optional)
+LAN sync is **off by default**. A status chip at the bottom-right shows whether
+it's on: left-click to toggle it (enabling shows a one-time risk warning), or
+right-click to open the sync panel — name this device, scan for other DevClip
+machines on your network, and sync snippets and clipboard history directly, with
+no server or account. While sync is on, any DevClip on the network can connect
+and receive your data, so enable it only on trusted networks.
 
 ## Architecture
 
@@ -121,9 +132,11 @@ A pure-Rust, fully-tested core; a thin Tauri shell; a vanilla-TS UI.
 frontend (TS/Vite)  ──IPC──▶  src-tauri (shell)  ──▶  devclip-core (logic + SQLite)
 ```
 
-- **`crates/devclip-core`** — model, fuzzy matcher, ranking, SQLite store. No
-  GUI deps; **23 unit tests**. This is where search quality lives.
-- **`src-tauri`** — global hotkey, clipboard polling, paste injection, IPC.
+- **`crates/devclip-core`** — model, fuzzy matcher, ranking, SQLite store, and
+  the sync merge logic. No GUI deps; **37 unit tests**. This is where search
+  quality lives.
+- **`src-tauri`** — global hotkey, clipboard polling, paste injection, LAN sync
+  (discovery + transfer), IPC.
 - **`src/`** — the command-palette UI (also runs in a plain browser against an
   in-memory mock for fast iteration).
 
@@ -181,13 +194,16 @@ npm run tauri icon path/to/icon.png
 
 ## Status & roadmap
 
-V1 is complete and verified (core tested, frontend + desktop binary build), with
-a Settings window (storage path + clipboard limit), a Clipboard-first unified
-search, cursor-anchored positioning, and reliable Windows paste (focus-restore +
-`SendInput`). Planned next, intentionally **not** here: a configurable hotkey,
-snippet variables, expiration dates, cross-machine sync, AI naming/search, and
-team sharing. The core/shell split and versioned schema leave room for these
-without a rewrite.
+DevClip is ready for daily use and ships installers for **Windows and macOS**
+via GitHub Releases. Shipped so far: Clipboard-first unified search with
+recency/frequency ranking, an in-app settings panel, reliable Windows paste
+(focus-restore + `SendInput`), active-window positioning on Windows, and
+**optional LAN sync** (off by default) for snippets and clipboard history.
+
+Planned next: a configurable hotkey, snippet variables (`{{date}}`,
+`{{clipboard}}`, typed prompts), clipboard-entry expiration, AI-assisted naming
+and semantic search, code-signed installers, and team snippet sharing. The
+core/shell split and versioned schema leave room for these without a rewrite.
 
 ## License
 
